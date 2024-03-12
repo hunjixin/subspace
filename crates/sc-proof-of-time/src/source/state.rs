@@ -158,37 +158,34 @@ impl PotState {
             let mut slot_iterations = previous_best_state.next_slot_input.slot_iterations;
             let mut seed = previous_best_state.next_slot_input.seed;
 
-            for slot in u64::from(previous_best_state.next_slot_input.slot)
-                ..u64::from(best_state.next_slot_input.slot)
-            {
-                let slot = Slot::from(slot);
-
-                let Some(checkpoints) = self.verifier.try_get_checkpoints(slot_iterations, seed)
-                else {
-                    break;
-                };
-
-                let pot_input = PotNextSlotInput::derive(
-                    slot_iterations,
-                    slot,
-                    checkpoints.output(),
-                    &maybe_updated_parameters_change.flatten(),
-                );
-
-                // TODO: Consider carrying of the whole `PotNextSlotInput` rather than individual
-                //  variables
-                let next_slot = slot + Slot::from(1);
-                slot_iterations = pot_input.slot_iterations;
-                seed = pot_input.seed;
-
-                if next_slot == best_state.next_slot_input.slot
-                    && slot_iterations == best_state.next_slot_input.slot_iterations
-                    && seed == best_state.next_slot_input.seed
+            if let Some(checkpoints) = self.verifier.try_get_checkpoints(slot_iterations, seed) {
+                for slot in u64::from(previous_best_state.next_slot_input.slot)
+                    ..u64::from(best_state.next_slot_input.slot)
                 {
-                    return PotStateUpdateOutcome::Extension {
-                        from: previous_best_state.next_slot_input,
-                        to: best_state.next_slot_input,
-                    };
+                    let slot = Slot::from(slot);
+
+                    let pot_input = PotNextSlotInput::derive(
+                        slot_iterations,
+                        slot,
+                        checkpoints.output(),
+                        &maybe_updated_parameters_change.flatten(),
+                    );
+
+                    // TODO: Consider carrying of the whole `PotNextSlotInput` rather than individual
+                    //  variables
+                    let next_slot = slot + Slot::from(1);
+                    slot_iterations = pot_input.slot_iterations;
+                    seed = pot_input.seed;
+
+                    if next_slot == best_state.next_slot_input.slot
+                        && slot_iterations == best_state.next_slot_input.slot_iterations
+                        && seed == best_state.next_slot_input.seed
+                    {
+                        return PotStateUpdateOutcome::Extension {
+                            from: previous_best_state.next_slot_input,
+                            to: best_state.next_slot_input,
+                        };
+                    }
                 }
             }
         }
