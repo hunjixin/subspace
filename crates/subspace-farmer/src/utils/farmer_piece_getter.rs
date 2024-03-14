@@ -1,6 +1,6 @@
 use crate::farmer_cache::FarmerCache;
 use crate::utils::plotted_pieces::PlottedPieces;
-use crate::NodeClient;
+use sc_consensus_subspace_rpc::{ NodeClient};
 use async_lock::Mutex as AsyncMutex;
 use async_trait::async_trait;
 use backoff::backoff::Backoff;

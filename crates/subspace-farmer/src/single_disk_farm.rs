@@ -6,7 +6,7 @@ mod plotting;
 pub mod unbuffered_io_file_windows;
 
 use crate::identity::{Identity, IdentityError};
-use crate::node_client::NodeClient;
+use sc_consensus_subspace_rpc::{ NodeClient};
 use crate::reward_signing::reward_signing;
 use crate::single_disk_farm::farming::rayon_files::RayonFiles;
 pub use crate::single_disk_farm::farming::FarmingError;

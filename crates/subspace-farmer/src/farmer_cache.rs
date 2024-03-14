@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests;
 
-use crate::node_client::NodeClient;
 use crate::single_disk_farm::piece_cache::{DiskPieceCache, Offset};
 use crate::single_disk_farm::plot_cache::{DiskPlotCache, MaybePieceStoredResult};
 use crate::utils::{run_future_in_dedicated_thread, AsyncJoinOnDrop};
@@ -24,7 +23,7 @@ use subspace_networking::{KeyWrapper, LocalRecordProvider, UniqueRecordBinaryHea
 use tokio::sync::mpsc;
 use tokio::task::yield_now;
 use tracing::{debug, error, info, trace, warn};
-
+use sc_consensus_subspace_rpc::{NodeClient};
 const WORKER_CHANNEL_CAPACITY: usize = 100;
 const CONCURRENT_PIECES_TO_DOWNLOAD: usize = 1_000;
 /// Make caches available as they are building without waiting for the initialization to finish,

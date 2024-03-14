@@ -11625,6 +11625,7 @@ dependencies = [
  "prometheus-client 0.22.0",
  "rand",
  "rayon",
+ "sc-consensus-subspace-rpc",
  "schnorrkel",
  "serde",
  "serde_json",

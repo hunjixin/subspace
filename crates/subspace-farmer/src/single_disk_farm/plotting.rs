@@ -5,7 +5,7 @@ use crate::single_disk_farm::{
 };
 use crate::thread_pool_manager::PlottingThreadPoolManager;
 use crate::utils::AsyncJoinOnDrop;
-use crate::{node_client, NodeClient};
+use sc_consensus_subspace_rpc::{node_client, NodeClient};
 use async_lock::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
 use atomic::Atomic;
 use futures::channel::{mpsc, oneshot};

@@ -40,7 +40,8 @@ use subspace_farmer::utils::{
     recommended_number_of_farming_threads, run_future_in_dedicated_thread,
     thread_pool_core_indices, AsyncJoinOnDrop, CpuCoreSet,
 };
-use subspace_farmer::{Identity, NodeClient, NodeRpcClient};
+use sc_consensus_subspace_rpc::{node_client, NodeClient}
+use subspace_farmer::{Identity};
 use subspace_farmer_components::plotting::PlottedSector;
 use subspace_metrics::{start_prometheus_metrics_server, RegistryAdapter};
 use subspace_networking::libp2p::identity::{ed25519, Keypair};

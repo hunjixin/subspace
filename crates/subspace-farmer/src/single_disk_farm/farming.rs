@@ -1,7 +1,7 @@
 pub mod rayon_files;
 
 use crate::node_client;
-use crate::node_client::NodeClient;
+use sc_consensus_subspace_rpc::{NodeClient};
 use crate::single_disk_farm::Handlers;
 use async_lock::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
 use futures::channel::mpsc;

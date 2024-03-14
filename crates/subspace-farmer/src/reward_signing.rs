@@ -1,5 +1,5 @@
 use crate::identity::Identity;
-use crate::node_client::NodeClient;
+use sc_consensus_subspace_rpc::{NodeClient};
 use futures::StreamExt;
 use std::future::Future;
 use subspace_rpc_primitives::{RewardSignatureResponse, RewardSigningInfo};

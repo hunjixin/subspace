@@ -69,6 +69,9 @@ use subspace_rpc_primitives::{
     MAX_SEGMENT_HEADERS_PER_REQUEST,
 };
 
+pub use node_client::node_rpc_client::NodeRpcClient;
+pub use node_client::{Error as RpcClientError, NodeClient};
+
 use tracing::{debug, error, warn};
 
 /// This is essentially equal to expected number of votes per block, one more is added implicitly by

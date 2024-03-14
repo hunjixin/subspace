@@ -39,7 +39,6 @@
 
 pub mod farmer_cache;
 pub(crate) mod identity;
-pub mod node_client;
 pub mod reward_signing;
 pub mod single_disk_farm;
 pub mod thread_pool_manager;
@@ -50,6 +49,4 @@ pub const KNOWN_PEERS_CACHE_SIZE: NonZeroUsize = NonZeroUsize::new(100).expect("
 
 pub use identity::Identity;
 pub use jsonrpsee;
-pub use node_client::node_rpc_client::NodeRpcClient;
-pub use node_client::{Error as RpcClientError, NodeClient};
 use std::num::NonZeroUsize;
