@@ -14,9 +14,11 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 async-oneshot = "0.5.9"
+async-trait = "0.1.77"
+tokio = { version = "1.35.1", features = ["macros", "parking_lot", "rt-multi-thread", "signal", "time"] }
 futures = "0.3.29"
 futures-timer = "3.0.2"
-jsonrpsee = { version = "0.16.3", features = ["server", "macros"] }
+jsonrpsee = { version = "0.16.3", features = ["server", "client", "macros"] }
 lru = "0.12.1"
 parity-scale-codec = "3.6.9"
 parking_lot = "0.12.1"

@@ -22,6 +22,7 @@ mod chain_spec;
 mod chain_spec_utils;
 mod cli;
 mod domain;
+mod peers;
 
 use crate::cli::{Cli, SubspaceCliPlaceholder};
 use crate::domain::cli::DomainKey;
@@ -385,6 +386,7 @@ fn main() -> Result<(), Error> {
             }
             _ => unimplemented!("Domain subcommand"),
         },
+        cli::Cli::Peers(_) => todo!(),
     }
 
     Ok(())

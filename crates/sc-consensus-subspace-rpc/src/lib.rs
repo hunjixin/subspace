@@ -68,7 +68,7 @@ use subspace_rpc_primitives::{
     FarmerAppInfo, RewardSignatureResponse, RewardSigningInfo, SlotInfo, SolutionResponse,
     MAX_SEGMENT_HEADERS_PER_REQUEST,
 };
-
+pub mod node_client;
 pub use node_client::node_rpc_client::NodeRpcClient;
 pub use node_client::{Error as RpcClientError, NodeClient};
 

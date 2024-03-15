@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::chain_spec;
+use crate::peers;
 use crate::commands::{RunOptions, WipeOptions};
 use clap::Parser;
 use sc_chain_spec::GenericChainSpec;
@@ -60,6 +61,9 @@ pub enum Cli {
     /// Sub-commands concerned with benchmarking.
     #[clap(subcommand)]
     Benchmark(frame_benchmarking_cli::BenchmarkCmd),
+
+    /// Db meta columns information.
+    Peers(peers::ListConnectPeersOptions),
 }
 
 /// Fake Subspace CLI just to satisfy Substrate's API

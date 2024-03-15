@@ -9255,6 +9255,7 @@ name = "sc-consensus-subspace-rpc"
 version = "0.1.0"
 dependencies = [
  "async-oneshot",
+ "async-trait",
  "futures",
  "futures-timer",
  "jsonrpsee",
@@ -9277,6 +9278,7 @@ dependencies = [
  "subspace-farmer-components",
  "subspace-networking",
  "subspace-rpc-primitives",
+ "tokio",
  "tracing",
 ]
 
@@ -11823,6 +11825,7 @@ dependencies = [
  "sc-client-api",
  "sc-consensus-slots",
  "sc-consensus-subspace",
+ "sc-consensus-subspace-rpc",
  "sc-domains",
  "sc-informant",
  "sc-keystore",
