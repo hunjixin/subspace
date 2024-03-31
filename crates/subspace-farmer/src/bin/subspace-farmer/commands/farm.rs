@@ -1,4 +1,4 @@
-mod dsn;
+pub mod dsn;
 mod metrics;
 
 use crate::commands::farm::dsn::configure_dsn;
@@ -55,15 +55,15 @@ use tracing::{debug, error, info, info_span, warn, Instrument};
 use zeroize::Zeroizing;
 
 /// Get piece retry attempts number.
-const PIECE_GETTER_MAX_RETRIES: u16 = 7;
+pub const PIECE_GETTER_MAX_RETRIES: u16 = 7;
 /// Defines initial duration between get_piece calls.
-const GET_PIECE_INITIAL_INTERVAL: Duration = Duration::from_secs(5);
+pub const GET_PIECE_INITIAL_INTERVAL: Duration = Duration::from_secs(5);
 /// Defines max duration between get_piece calls.
-const GET_PIECE_MAX_INTERVAL: Duration = Duration::from_secs(40);
+pub const GET_PIECE_MAX_INTERVAL: Duration = Duration::from_secs(40);
 /// NOTE: for large gaps between the plotted part and the end of the file plot cache will result in
 /// very long period of writing zeroes on Windows, see https://stackoverflow.com/q/78058306/3806795
-const MAX_SPACE_PLEDGED_FOR_PLOT_CACHE_ON_WINDOWS: u64 = 7 * 1024 * 1024 * 1024 * 1024;
-const FARM_ERROR_PRINT_INTERVAL: Duration = Duration::from_secs(30);
+pub const MAX_SPACE_PLEDGED_FOR_PLOT_CACHE_ON_WINDOWS: u64 = 7 * 1024 * 1024 * 1024 * 1024;
+pub const FARM_ERROR_PRINT_INTERVAL: Duration = Duration::from_secs(30);
 
 fn should_farm_during_initial_plotting() -> bool {
     let total_cpu_cores = all_cpu_cores()
@@ -279,10 +279,10 @@ fn cache_percentage_parser(s: &str) -> anyhow::Result<NonZeroU8> {
 
 /// Arguments for DSN
 #[derive(Debug, Parser)]
-struct DsnArgs {
+pub struct DsnArgs {
     /// Multiaddrs of bootstrap nodes to connect to on startup, multiple are supported
     #[arg(long)]
-    bootstrap_nodes: Vec<Multiaddr>,
+    pub bootstrap_nodes: Vec<Multiaddr>,
     /// Multiaddr to listen on for subspace networking, for instance `/ip4/0.0.0.0/tcp/0`,
     /// multiple are supported.
     #[arg(long, default_values_t = [
@@ -291,40 +291,40 @@ struct DsnArgs {
         Multiaddr::from(IpAddr::V6(Ipv6Addr::UNSPECIFIED))
             .with(Protocol::Tcp(30533))
     ])]
-    listen_on: Vec<Multiaddr>,
+    pub listen_on: Vec<Multiaddr>,
     /// Determines whether we allow keeping non-global (private, shared, loopback..) addresses in
     /// Kademlia DHT.
     #[arg(long, default_value_t = false)]
-    allow_private_ips: bool,
+    pub allow_private_ips: bool,
     /// Multiaddrs of reserved nodes to maintain a connection to, multiple are supported
     #[arg(long)]
-    reserved_peers: Vec<Multiaddr>,
+    pub reserved_peers: Vec<Multiaddr>,
     /// Defines max established incoming connection limit.
     #[arg(long, default_value_t = 300)]
-    in_connections: u32,
+    pub in_connections: u32,
     /// Defines max established outgoing swarm connection limit.
     #[arg(long, default_value_t = 100)]
-    out_connections: u32,
+    pub out_connections: u32,
     /// Defines max pending incoming connection limit.
     #[arg(long, default_value_t = 100)]
-    pending_in_connections: u32,
+    pub pending_in_connections: u32,
     /// Defines max pending outgoing swarm connection limit.
     #[arg(long, default_value_t = 100)]
-    pending_out_connections: u32,
+    pub pending_out_connections: u32,
     /// Known external addresses
     #[arg(long, alias = "external-address")]
-    external_addresses: Vec<Multiaddr>,
+    pub external_addresses: Vec<Multiaddr>,
     /// Defines whether we should run blocking Kademlia bootstrap() operation before other requests.
     #[arg(long, default_value_t = false)]
-    disable_bootstrap_on_start: bool,
+    pub disable_bootstrap_on_start: bool,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct DiskFarm {
     /// Path to directory where data is stored.
-    directory: PathBuf,
+    pub directory: PathBuf,
     /// How much space in bytes can farm use for plots (metadata space is not included)
-    allocated_plotting_space: u64,
+    pub allocated_plotting_space: u64,
 }
 
 impl FromStr for DiskFarm {

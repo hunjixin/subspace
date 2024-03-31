@@ -132,7 +132,7 @@ impl PieceCache for DiskPieceCache {
 impl DiskPieceCache {
     pub(crate) const FILE_NAME: &'static str = "piece_cache.bin";
 
-    pub(crate) fn open(directory: &Path, capacity: u32) -> Result<Self, DiskPieceCacheError> {
+    pub fn open(directory: &Path, capacity: u32) -> Result<Self, DiskPieceCacheError> {
         if capacity == 0 {
             return Err(DiskPieceCacheError::ZeroCapacity);
         }
@@ -172,7 +172,7 @@ impl DiskPieceCache {
         })
     }
 
-    pub(crate) const fn element_size() -> u32 {
+    pub const fn element_size() -> u32 {
         (PieceIndex::SIZE + Piece::SIZE + mem::size_of::<Blake3Hash>()) as u32
     }
 
@@ -180,7 +180,7 @@ impl DiskPieceCache {
     ///
     /// NOTE: it is possible to do concurrent reads and writes, higher level logic must ensure this
     /// doesn't happen for the same piece being accessed!
-    pub(crate) fn contents(
+    pub fn contents(
         &self,
     ) -> impl ExactSizeIterator<Item = (PieceCacheOffset, Option<PieceIndex>)> + '_ {
         let mut element = vec![0; Self::element_size() as usize];
@@ -217,7 +217,7 @@ impl DiskPieceCache {
     ///
     /// NOTE: it is possible to do concurrent reads and writes, higher level logic must ensure this
     /// doesn't happen for the same piece being accessed!
-    pub(crate) fn write_piece(
+    pub fn write_piece(
         &self,
         offset: PieceCacheOffset,
         piece_index: PieceIndex,
@@ -254,7 +254,7 @@ impl DiskPieceCache {
     ///
     /// NOTE: it is possible to do concurrent reads and writes, higher level logic must ensure this
     /// doesn't happen for the same piece being accessed!
-    pub(crate) fn read_piece_index(
+    pub fn read_piece_index(
         &self,
         offset: PieceCacheOffset,
     ) -> Result<Option<PieceIndex>, DiskPieceCacheError> {
@@ -276,7 +276,7 @@ impl DiskPieceCache {
     ///
     /// NOTE: it is possible to do concurrent reads and writes, higher level logic must ensure this
     /// doesn't happen for the same piece being accessed!
-    pub(crate) fn read_piece(
+    pub fn read_piece(
         &self,
         offset: PieceCacheOffset,
     ) -> Result<Option<Piece>, DiskPieceCacheError> {
