@@ -2,21 +2,20 @@ use super::farm::{DiskFarm, DsnArgs};
 use crate::utils::shutdown_signal;
 use anyhow::{anyhow, Result};
 use clap::{Parser, ValueHint};
-use futures::stream::FuturesUnordered;
-use futures::{select, FutureExt, StreamExt};
+use futures::channel::mpsc::channel;
+use futures::{select, FutureExt, SinkExt, StreamExt};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::pin::pin;
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
 use subspace_core_primitives::crypto::blake3_hash_list;
 use subspace_core_primitives::crypto::kzg::{embedded_kzg_settings, Kzg};
 use subspace_core_primitives::{Piece, PieceIndex, SegmentIndex};
 use subspace_farmer::node_client::NodeClientExt;
 use subspace_farmer::utils::piece_validator::SegmentCommitmentPieceValidator;
 use subspace_farmer::utils::run_future_in_dedicated_thread;
-use subspace_farmer::{Identity, NodeClient, NodeRpcClient, KNOWN_PEERS_CACHE_SIZE};
+use subspace_farmer::{Identity, NodeClient, NodeRpcClient, NodeRetryRpcClient, KNOWN_PEERS_CACHE_SIZE};
 use subspace_networking::libp2p::identity::{ed25519, Keypair};
 use subspace_networking::libp2p::kad::{ProviderRecord, RecordKey};
 use subspace_networking::libp2p::multiaddr::Protocol;
@@ -28,8 +27,10 @@ use subspace_networking::{
     PieceByIndexResponse, SegmentHeaderBySegmentIndexesRequestHandler, SegmentHeaderRequest,
     SegmentHeaderResponse,
 };
+
 use subspace_rpc_primitives::MAX_SEGMENT_HEADERS_PER_REQUEST;
 use tokio::sync::Semaphore;
+use tokio::time::{sleep, Duration, Instant};
 use tracing::{debug, error, info, warn, Instrument};
 use zeroize::Zeroizing;
 
@@ -92,7 +93,7 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
     );
 
     info!(url = %node_rpc_url, "Connecting to node RPC");
-    let node_client = NodeRpcClient::new(&node_rpc_url).await?;
+    let node_client = NodeRetryRpcClient::new(&node_rpc_url).await?;
 
     let farmer_app_info = node_client
         .farmer_app_info()
@@ -127,99 +128,13 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
         "farmer-networking".to_string(),
     )?;
 
-    //subscribe new piece
-    let piece_watch_fut = {
-        let mut piece_storage = piece_storage.clone();
-        let node_client = node_client.clone();
-        run_future_in_dedicated_thread(
-            move || async move {
-                let mut segment_headers_notifications = node_client
-                    .subscribe_archived_segment_headers()
-                    .await
-                    .unwrap();
-                let node_client = &node_client;
-                info!("Begin to subscribe segment header notification");
-                loop {
-                    select! {
-                        maybe_segment_header = segment_headers_notifications.next().fuse() => {
-                            if let Some(segment_header) = maybe_segment_header {
-                                let segment_index = segment_header.segment_index();
-                                info!(%segment_index, "Starting to process newly archived segment");
-                                // We do not insert pieces into cache/heap yet, so we don't know if all of these pieces
-                                // will be included, but there is a good chance they will be and we want to acknowledge
-                                // new segment header as soon as possible
-                                let pieces = segment_index
-                                    .segment_piece_indexes()
-                                    .into_iter()
-                                    .map(|piece_index| async move {
-                                        let maybe_piece = match node_client.piece(piece_index).await {
-                                            Ok(maybe_piece) => maybe_piece,
-                                            Err(error) => {
-                                                error!(
-                                                    %error,
-                                                    %segment_index,
-                                                    %piece_index,
-                                                    "Failed to retrieve piece from node right after archiving, this \
-                                                    should never happen and is an implementation bug"
-                                                );
-
-                                                return None;
-                                            }
-                                        };
-
-                                        let Some(piece) = maybe_piece else {
-                                            error!(
-                                                %segment_index,
-                                                %piece_index,
-                                                "Failed to retrieve piece from node right after archiving, this should \
-                                                never happen and is an implementation bug"
-                                            );
-
-                                            return None;
-                                        };
-
-                                        Some((piece_index, piece))
-                                    })
-                                    .collect::<FuturesUnordered<_>>()
-                                    .filter_map(|maybe_piece| async move { maybe_piece })
-                                    .collect::<Vec<_>>()
-                                    .await;
-                                info!(%segment_index, "Downloaded potentially useful pieces");
-
-                                for (piece_index, piece) in pieces {
-                                    info!(%piece_index, "Piece needs to be cached #1");
-
-                                    if let Err(e) = piece_storage.save_piece(piece_index, piece) {
-                                        error!(%e, "save piece fail")
-                                    }
-                                }
-                            } else {
-                                // Keep-up sync only ends with subscription, which lasts for duration of an
-                                // instance
-                                return;
-                            }
-                        }
-                    }
-                }
-            },
-            "piece-catcher-worker".to_string(),
-        )?
-    };
-
-    //scan to fix missing piece
+    let (sender, mut reciever) = channel::<PieceIndex>(50);
     {
+        let node = node.clone();
         let node_client = node_client.clone();
+        let piece_storage = piece_storage.clone();
+        //download piece
         tokio::spawn(async move {
-            info!("Start to fix missing pieces");
-            let last_segment_index = farmer_app_info.protocol_info.history_size.segment_index();
-            let missing_pieces: Vec<PieceIndex> = (SegmentIndex::ZERO..=last_segment_index)
-                .map(|segment_index| segment_index.segment_piece_indexes())
-                .flatten()
-                .filter(|a| !piece_storage.has_piece(a))
-                .rev()
-                .collect();
-            info!("Start to download missing pieces {}", missing_pieces.len());
-
             let kzg = Kzg::new(embedded_kzg_settings());
             let validator = Some(SegmentCommitmentPieceValidator::new(
                 node.clone(),
@@ -229,58 +144,140 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
 
             let piece_storage = Arc::new(RwLock::new(piece_storage));
             let semaphore = Arc::new(Semaphore::new(download_count as usize));
-            for piece_index in missing_pieces {
-                let permit = semaphore.clone().acquire_owned().await.unwrap();
 
-                let node = node.clone();
-                let validator = validator.clone();
-                let piece_storage = piece_storage.clone();
-                let _ = tokio::spawn(async move {
-                    let piece_provider = PieceProvider::new(node, validator);
-
-                    info!(%piece_index, "Start to download piece from cache");
-                    let start = Instant::now();
-                    if let Some(piece) = piece_provider.get_piece_from_cache(piece_index).await {
-                        piece_storage
-                            .write()
-                            .unwrap()
-                            .save_piece(piece_index.clone(), piece)
-                            .expect("Write piece file to storage");
-                        let duration = start.elapsed();
-                        drop(permit);
-                        info!(%piece_index, "Downloaded piece from L1 {:?}", duration);
+            loop {
+                if let Some(piece_index) = reciever.next().await {
+                    if piece_storage.read().unwrap().has_piece(&piece_index) {
                         return;
                     }
 
-                    info!(%piece_index, "Start to download piece archival storage");
-                    let start = Instant::now();
-                    if let Some(piece) = piece_provider
-                        .get_piece_from_archival_storage(piece_index, 15)
-                        .await
-                    {
-                        piece_storage
-                            .write()
-                            .unwrap()
-                            .save_piece(piece_index, piece)
-                            .expect("Write piece file to storage");
-                        let duration = start.elapsed();
+                    let node = node.clone();
+                    let validator = validator.clone();
+                    let piece_storage = piece_storage.clone();
+                    let permit = semaphore.clone().acquire_owned().await.unwrap();
+                    let _ = tokio::spawn(async move {
+                        let piece_provider = PieceProvider::new(node, validator);
+
+                        info!(%piece_index, "Start to download piece from cache");
+                        let start = Instant::now();
+                        if let Some(piece) = piece_provider.get_piece_from_cache(piece_index).await
+                        {
+                            piece_storage
+                                .write()
+                                .unwrap()
+                                .save_piece(piece_index.clone(), piece)
+                                .expect("Write piece file to storage");
+                            let duration = start.elapsed();
+                            drop(permit);
+                            info!(%piece_index, "Downloaded piece from L1 {:?}", duration);
+                            return;
+                        }
+
+                        info!(%piece_index, "Start to download piece archival storage");
+                        let start = Instant::now();
+                        if let Some(piece) = piece_provider
+                            .get_piece_from_archival_storage(piece_index, 15)
+                            .await
+                        {
+                            piece_storage
+                                .write()
+                                .unwrap()
+                                .save_piece(piece_index, piece)
+                                .expect("Write piece file to storage");
+                            let duration = start.elapsed();
+                            drop(permit);
+                            info!(%piece_index, "Downloaded piece from archival storage {:?}", duration);
+                            return;
+                        }
+                        error!(%piece_index, "Unable to download piece wait for next round");
                         drop(permit);
-                        info!(%piece_index, "Downloaded piece from archival storage {:?}", duration);
-                        return;
+                    });
+                }
+            }
+        });
+    }
+
+    //subscribe new piece
+    {
+        let node_client = node_client.clone();
+        let mut sender = sender.clone();
+        let duration = Duration::from_secs(5);
+        tokio::spawn(async move {
+            loop {
+                let segment_headers_notifications =
+                    node_client.subscribe_archived_segment_headers().await;
+                match segment_headers_notifications {
+                    Ok(mut segment_headers_notifications) => {
+                        info!("Begin to subscribe segment header notification");
+                        loop {
+                            select! {
+                                maybe_segment_header = segment_headers_notifications.next().fuse() => {
+                                    if let Some(segment_header) = maybe_segment_header {
+                                        let segment_index = segment_header.segment_index();
+                                        info!(%segment_index, "Starting to process newly archived segment");
+                                        let piecse_indexs = segment_index.segment_piece_indexes();
+                                        for piece_index in piecse_indexs {
+                                            if let Err(e) = sender.send(piece_index).await {
+                                                warn!(%e, "Send newly pieces");
+                                            }
+                                        }
+                                    } else {
+                                        // Keep-up sync only ends with subscription, which lasts for duration of an
+                                        // instance
+                                        warn!(" Keep-up sync only ends with subscription");
+                                        sleep(duration).await;
+                                    }
+                                }
+                            }
+                        }
                     }
-                    error!(%piece_index, "Unable to download piece wait for next round");
-                    drop(permit);
-                });
+                    Err(e) => {
+                        error!(%e, "Subscribe archived segment headers");
+                        sleep(duration).await;
+                    }
+                }
+            }
+        })
+    };
+
+    {
+        //scan to fix missing piece and try fix missing round by round
+        let node_client = node_client.clone();
+        let mut sender = sender.clone();
+        let duration = Duration::from_secs(60 * 2);
+        tokio::spawn(async move {
+            info!("Start to fix missing pieces");
+            loop {
+                let farmer_app_info = node_client.farmer_app_info().await;
+                match farmer_app_info {
+                    Ok(farmer_app_info) => {
+                        let last_segment_index =
+                            farmer_app_info.protocol_info.history_size.segment_index();
+                        let missing_pieces: Vec<PieceIndex> = (SegmentIndex::ZERO
+                            ..=last_segment_index)
+                            .map(|segment_index| segment_index.segment_piece_indexes())
+                            .flatten()
+                            .filter(|a| !piece_storage.has_piece(a))
+                            .rev()
+                            .collect();
+                        info!("Start to download missing pieces {}", missing_pieces.len());
+                        for piece_index in missing_pieces {
+                            if let Err(e) = sender.send(piece_index).await {
+                                warn!(%e, "Send missing pieces");
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!(%e, "Reuqust for latest message fail");
+                    }
+                }
+                sleep(duration).await;
             }
         });
     };
 
     let networking_fut = networking_fut;
-    let piece_watch_fut = piece_watch_fut;
-
     let networking_fut = pin!(networking_fut);
-    let piece_watch_fut = pin!(piece_watch_fut);
-
     futures::select!(
         // Signal future
         _ = signal.fuse() => {},
@@ -290,10 +287,6 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
             info!("Node runner exited.")
         },
 
-        // Piece cache worker future
-        _ = piece_watch_fut.fuse() => {
-            info!("Piece watch worker exited.")
-        },
     );
 
     anyhow::Ok(())
@@ -521,7 +514,7 @@ fn configure_dsn(
         external_addresses,
         disable_bootstrap_on_start,
     }: DsnArgs,
-    node_client: NodeRpcClient,
+    node_client: NodeRetryRpcClient,
     piece_storage: MyPieceCache,
 ) -> Result<(Node, NodeRunner<MyPieceCache>), anyhow::Error> {
     let networking_parameters_registry = KnownPeersManager::new(KnownPeersManagerConfig {

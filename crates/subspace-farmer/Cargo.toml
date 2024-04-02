@@ -12,6 +12,7 @@ include = [
 ]
 
 [dependencies]
+reconnecting-jsonrpsee-ws-client = "=0.3.0"
 anyhow = "1.0.79"
 async-lock = "3.3.0"
 async-trait = "0.1.77"
