@@ -15,7 +15,7 @@ use subspace_core_primitives::{Piece, PieceIndex, SegmentIndex};
 use subspace_farmer::node_client::NodeClientExt;
 use subspace_farmer::utils::piece_validator::SegmentCommitmentPieceValidator;
 use subspace_farmer::utils::run_future_in_dedicated_thread;
-use subspace_farmer::{Identity, NodeClient, NodeRpcClient, NodeRetryRpcClient, KNOWN_PEERS_CACHE_SIZE};
+use subspace_farmer::{Identity, NodeClient, NodeRetryRpcClient, KNOWN_PEERS_CACHE_SIZE};
 use subspace_networking::libp2p::identity::{ed25519, Keypair};
 use subspace_networking::libp2p::kad::{ProviderRecord, RecordKey};
 use subspace_networking::libp2p::multiaddr::Protocol;
@@ -504,7 +504,7 @@ fn configure_dsn(
     keypair: Keypair,
     DsnArgs {
         listen_on,
-        bootstrap_nodes,
+        mut bootstrap_nodes,
         allow_private_ips,
         reserved_peers,
         in_connections,
@@ -546,7 +546,7 @@ fn configure_dsn(
         .in_current_span()
     });
     handler.protocol_config().request_timeout = std::time::Duration::from_secs(120);
-
+    bootstrap_nodes.extend(reserved_peers.clone());
     let config = Config {
         reserved_peers,
         listen_on,
