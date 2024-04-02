@@ -529,27 +529,30 @@ fn configure_dsn(
     .map(Box::new)?;
 
     let default_config = Config::new(protocol_prefix, keypair, piece_storage.clone(), None);
+
+    let handler =   PieceByIndexRequestHandler::create(move |_, &PieceByIndexRequest { piece_index }| {
+        info!(?piece_index, "Piece request received. Trying cache...");
+        let piece_storage = piece_storage.clone();
+        async move {
+            let piece_from_cache = piece_storage.get_piece(&piece_index);
+            if let Err(e) = piece_from_cache {
+                warn!(%e, %piece_index,"get piece fail");
+                return None;
+            }
+            Some(PieceByIndexResponse {
+                piece: Some(piece_from_cache.unwrap()),
+            })
+        }
+        .in_current_span()
+    });
+    handler.protocol_config().request_timeout = std::time::Duration::from_secs(120);
+
     let config = Config {
         reserved_peers,
         listen_on,
         allow_non_global_addresses_in_dht: allow_private_ips,
         networking_parameters_registry,
-        request_response_protocols: vec![
-            PieceByIndexRequestHandler::create(move |_, &PieceByIndexRequest { piece_index }| {
-                info!(?piece_index, "Piece request received. Trying cache...");
-                let piece_storage = piece_storage.clone();
-                async move {
-                    let piece_from_cache = piece_storage.get_piece(&piece_index);
-                    if let Err(e) = piece_from_cache {
-                        warn!(%e, %piece_index,"get piece fail");
-                        return None;
-                    }
-                    Some(PieceByIndexResponse {
-                        piece: Some(piece_from_cache.unwrap()),
-                    })
-                }
-                .in_current_span()
-            }),
+        request_response_protocols: vec![handler,
             SegmentHeaderBySegmentIndexesRequestHandler::create(move |_, req| {
                 info!(?req, "Segment headers request received.");
 

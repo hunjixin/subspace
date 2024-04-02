@@ -148,7 +148,7 @@ where
                             .get_piece_from_peer(peer_id, piece_index)
                             .await
                         {
-                            info!(%piece_index, "Get piece from piece cache serve");
+                            info!(%piece_index, "Success Get piece from piece cache serve");
                             return Some(piece);
                         }
                     }
