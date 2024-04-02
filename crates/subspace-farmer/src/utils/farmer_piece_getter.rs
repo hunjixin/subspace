@@ -134,6 +134,7 @@ where
         if let Ok(addr_str) = addr_var {
             match Multiaddr::from_str(addr_str.as_str()) {
                 Ok(mut addr) => {
+                    info!(%piece_index, "Try toi get piuece from cache server");
                     let peer_id: Option<PeerId> = addr.pop().and_then(|protocol| {
                         if let Protocol::P2p(peer_id) = protocol {
                             Some(peer_id)
