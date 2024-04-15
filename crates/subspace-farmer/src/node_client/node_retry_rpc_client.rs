@@ -23,11 +23,7 @@ impl NodeRetryRpcClient {
         let client = Arc::new(
             Client::builder()
                 .retry_policy(ExponentialBackoff::from_millis(100))
-                .enable_ws_ping(
-                    PingConfig::new()
-                        .ping_interval(Duration::from_secs(6))
-                        .inactive_limit(Duration::from_secs(30)),
-                )
+                .disable_ws_ping()
                 .build(url.to_string())
                 .await
                 .map_err(|_| jsonrpsee::core::Error::Custom("init fail".to_string()))?,

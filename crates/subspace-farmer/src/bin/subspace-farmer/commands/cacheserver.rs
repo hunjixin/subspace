@@ -221,14 +221,9 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                                         info!(%segment_index, "Starting to process newly archived segment");
                                         let piecse_indexs = segment_index.segment_piece_indexes();
                                         for piece_index in piecse_indexs {
-                                            let (result_sender, result_recevier) = oneshot::channel::<Option<()>>();
+                                            let (result_sender, _) = oneshot::channel::<Option<()>>();
                                             if let Err(e) = sender.send((piece_index, result_sender)).await {
                                                 warn!(%e, "Send piece index fail");
-                                                continue;
-                                            }
-                                            
-                                            if let Err(e) = result_recevier.await {
-                                                error!(%e, "receive result fail");
                                                 continue;
                                             }
                                         }
@@ -274,14 +269,9 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                         if missing_pieces.len() > 0 {
                             info!("Start to download missing pieces {}", missing_pieces.len());
                             for piece_index in missing_pieces {
-                                let (result_sender, result_recevier) = oneshot::channel::<Option<()>>();
+                                let (result_sender, _) = oneshot::channel::<Option<()>>();
                                 if let Err(e) = sender.send((piece_index, result_sender)).await {
                                     warn!(%e, "Send piece index fail");
-                                    continue;
-                                }
-                                
-                                if let Err(e) = result_recevier.await {
-                                    error!(%e, "receive result fail");
                                     continue;
                                 }
                             }
@@ -297,11 +287,15 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                                     continue;
                                 }
                                 
+                                //wait result to stop detect
                                 match  result_recevier.await {
                                     Ok(result) => {
                                         match result  {
                                             Some(()) => info!(%next_piece_index, "Success get piece more and node maybe sync slow"),
-                                            None=>break
+                                            None=>{
+                                                info!("no new piece index dectect");
+                                                break;
+                                            }
                                         }
                                     }
                                     Err(e) =>{
