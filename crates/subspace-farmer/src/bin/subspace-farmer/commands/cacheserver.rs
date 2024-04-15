@@ -47,6 +47,10 @@ pub struct CacheServerArgs {
     download_count: u32,
     #[arg(long, default_value_t = false)]
     pub verify_piece: bool,
+
+    #[arg(long, default_value_t = false)]
+    pub disable_detect_future_piece: bool,
+
     /// DSN parameters
     #[clap(flatten)]
     dsn: DsnArgs,
@@ -60,6 +64,7 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
     let CacheServerArgs {
         node_rpc_url,
         download_count,
+        disable_detect_future_piece,
         verify_piece,
         mut dsn,
         cache_path,
@@ -280,33 +285,35 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                             }
                         }
 
-                        info!("Try to increase piece index");
-                        if let Ok(max_piece_index) = piece_storage.max_piece_index() {
-                            let next_piece_index = max_piece_index + PieceIndex::ONE;
-                            loop {
-                                let (result_sender, result_recevier) = oneshot::channel::<Option<()>>();
-                                if let Err(e) = sender.send((next_piece_index, true, result_sender)).await {
-                                    warn!(%e, "Send piece index fail");
-                                    continue;
-                                }
-                                
-                                //wait result to stop detect
-                                match  result_recevier.await {
-                                    Ok(result) => {
-                                        match result  {
-                                            Some(()) => info!(%next_piece_index, "Success get piece more and node maybe sync slow"),
-                                            None=>{
-                                                info!("no new piece index dectect");
-                                                break;
+                        if disable_detect_future_piece {
+                            info!("Try to increase piece index");
+                            if let Ok(max_piece_index) = piece_storage.max_piece_index() {
+                                let mut next_piece_index = max_piece_index + PieceIndex::ONE;
+                                loop {
+                                    let (result_sender, result_recevier) = oneshot::channel::<Option<()>>();
+                                    if let Err(e) = sender.send((next_piece_index, true, result_sender)).await {
+                                        warn!(%e, "Send piece index fail");
+                                        continue;
+                                    }
+                                    
+                                    //wait result to stop detect
+                                    match  result_recevier.await {
+                                        Ok(result) => {
+                                            match result  {
+                                                Some(()) => info!(%next_piece_index, "Success get piece more and node maybe sync slow"),
+                                                None=>{
+                                                    info!("no new piece index dectect");
+                                                    break;
+                                                }
                                             }
                                         }
+                                        Err(e) =>{
+                                            error!(%e, "receive result fail");
+                                            break;
+                                        }
                                     }
-                                    Err(e) =>{
-                                        error!(%e, "receive result fail");
-                                        break;
-                                    }
+                                    next_piece_index += PieceIndex::ONE;
                                 }
-
                             }
                         }
                     }
