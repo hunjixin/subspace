@@ -2,11 +2,10 @@ use crate::node_client::{Error as RpcError, Error, NodeClient, NodeClientExt};
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 use jsonrpsee::core::Error as JsonError;
-use reconnecting_jsonrpsee_ws_client::{rpc_params, Client, ExponentialBackoff, PingConfig};
+use reconnecting_jsonrpsee_ws_client::{rpc_params, Client, ExponentialBackoff};
 use std::fmt::{self};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
 use subspace_core_primitives::{Piece, PieceIndex, SegmentHeader, SegmentIndex};
 use subspace_rpc_primitives::{
     FarmerAppInfo, RewardSignatureResponse, RewardSigningInfo, SlotInfo, SolutionResponse,

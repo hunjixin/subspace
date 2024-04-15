@@ -129,7 +129,7 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
         "farmer-networking".to_string(),
     )?;
 
-    let (sender, mut reciever) = channel::<(PieceIndex, oneshot::Sender<Option<()>>)>(50);
+    let (sender, mut reciever) = channel::<(PieceIndex, bool,oneshot::Sender<Option<()>>)>(50);
     {
         let node = node.clone();
         let node_client = node_client.clone();
@@ -147,7 +147,7 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
             let semaphore = Arc::new(Semaphore::new(download_count as usize));
             info!("Start piece download consumer");
             loop {
-                if let Some((piece_index, result_sender)) = reciever.next().await {
+                if let Some((piece_index,only_l1, result_sender)) = reciever.next().await {
                     if piece_storage.read().unwrap().has_piece(&piece_index) {
                         return;
                     }
@@ -175,23 +175,26 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                             return;
                         }
 
-                        info!(%piece_index, "Start to download piece archival storage");
-                        let start = Instant::now();
-                        if let Some(piece) = piece_provider
-                            .get_piece_from_archival_storage(piece_index, 15)
-                            .await
-                        {
-                            piece_storage
-                                .write()
-                                .unwrap()
-                                .save_piece(piece_index, piece)
-                                .expect("Write piece file to storage");
-                            let duration = start.elapsed();
-                            drop(permit);
-                            info!(%piece_index, "Downloaded piece from archival storage {:?}", duration);
-                            result_sender.send(Some(())).expect("Send result");
-                            return;
+                        if !only_l1 {
+                            info!(%piece_index, "Start to download piece archival storage");
+                            let start = Instant::now();
+                            if let Some(piece) = piece_provider
+                                .get_piece_from_archival_storage(piece_index, 15)
+                                .await
+                            {
+                                piece_storage
+                                    .write()
+                                    .unwrap()
+                                    .save_piece(piece_index, piece)
+                                    .expect("Write piece file to storage");
+                                let duration = start.elapsed();
+                                drop(permit);
+                                info!(%piece_index, "Downloaded piece from archival storage {:?}", duration);
+                                result_sender.send(Some(())).expect("Send result");
+                                return;
+                            }
                         }
+       
                         error!(%piece_index, "Unable to download piece wait for next round");
                         result_sender.send(None).expect("Send result");
                         drop(permit);
@@ -222,7 +225,7 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                                         let piecse_indexs = segment_index.segment_piece_indexes();
                                         for piece_index in piecse_indexs {
                                             let (result_sender, _) = oneshot::channel::<Option<()>>();
-                                            if let Err(e) = sender.send((piece_index, result_sender)).await {
+                                            if let Err(e) = sender.send((piece_index, false, result_sender)).await {
                                                 warn!(%e, "Send piece index fail");
                                                 continue;
                                             }
@@ -270,7 +273,7 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                             info!("Start to download missing pieces {}", missing_pieces.len());
                             for piece_index in missing_pieces {
                                 let (result_sender, _) = oneshot::channel::<Option<()>>();
-                                if let Err(e) = sender.send((piece_index, result_sender)).await {
+                                if let Err(e) = sender.send((piece_index, false, result_sender)).await {
                                     warn!(%e, "Send piece index fail");
                                     continue;
                                 }
@@ -282,7 +285,7 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                             let next_piece_index = max_piece_index + PieceIndex::ONE;
                             loop {
                                 let (result_sender, result_recevier) = oneshot::channel::<Option<()>>();
-                                if let Err(e) = sender.send((next_piece_index, result_sender)).await {
+                                if let Err(e) = sender.send((next_piece_index, true, result_sender)).await {
                                     warn!(%e, "Send piece index fail");
                                     continue;
                                 }
