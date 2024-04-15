@@ -45,6 +45,7 @@ pub struct CacheServerArgs {
 
     #[arg(long, default_value_t = 10)]
     download_count: u32,
+
     #[arg(long, default_value_t = false)]
     pub verify_piece: bool,
 
@@ -285,7 +286,7 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                             }
                         }
 
-                        if disable_detect_future_piece {
+                        if !disable_detect_future_piece {
                             info!("Try to increase piece index");
                             if let Ok(max_piece_index) = piece_storage.max_piece_index() {
                                 let mut next_piece_index = max_piece_index + PieceIndex::ONE;
