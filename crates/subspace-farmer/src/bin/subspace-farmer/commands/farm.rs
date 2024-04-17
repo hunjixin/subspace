@@ -650,7 +650,8 @@ where
     let farming_thread_pool_size = farming_thread_pool_size
         .map(|farming_thread_pool_size| farming_thread_pool_size.get())
         .unwrap_or_else(recommended_number_of_farming_threads);
-
+    info!(%farming_thread_pool_size, "use farming thread pool size");
+    
     let (farms, plotting_delay_senders) = {
         let node_rpc_url = &node_rpc_url;
         let global_mutex = Arc::default();
