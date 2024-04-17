@@ -141,7 +141,7 @@ where
             sectors_metadata,
             maybe_sector_being_modified,
         )?;
-        info!("audit plot sync time {:?}", start.elapsed());
+        info!("AuditMetrics audit plot sync time {:?}", start.elapsed());
 
         let start = Instant::now();
         let result = audit_results
@@ -177,7 +177,7 @@ where
                 Some((sector_index, sector_solutions))
             })
             .collect();
-            info!("audit find solution time {:?}", start.elapsed());
+            info!("AuditMetrics audit find solution time {:?}", start.elapsed());
             Ok(result)
     }
 }
