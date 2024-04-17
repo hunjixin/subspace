@@ -132,7 +132,7 @@ where
             read_sector_record_chunks_mode: mode,
             table_generator,
         } = options;
-
+        let start = Instant::now();
         let audit_results = audit_plot_sync(
             public_key,
             &slot_info.global_challenge,
@@ -141,8 +141,10 @@ where
             sectors_metadata,
             maybe_sector_being_modified,
         )?;
+        info!("audit plot sync time {:?}", start.elapsed());
 
-        Ok(audit_results
+        let start = Instant::now();
+        let result = audit_results
             .into_iter()
             .filter_map(|audit_results| {
                 let sector_index = audit_results.sector_index;
@@ -174,7 +176,9 @@ where
 
                 Some((sector_index, sector_solutions))
             })
-            .collect())
+            .collect();
+            info!("audit find solution time {:?}", start.elapsed());
+            Ok(result)
     }
 }
 
