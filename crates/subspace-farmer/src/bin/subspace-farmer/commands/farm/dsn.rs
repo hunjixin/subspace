@@ -72,7 +72,7 @@ pub(super) fn configure_dsn(
         networking_parameters_registry,
         request_response_protocols: vec![
             PieceByIndexRequestHandler::create(move |_, &PieceByIndexRequest { piece_index }| {
-                debug!(?piece_index, "Piece request received. Trying cache...");
+                info!(?piece_index, "Piece request received. Trying cache...");
 
                 let weak_plotted_pieces = weak_plotted_pieces.clone();
                 let farmer_cache = farmer_cache.clone();
@@ -120,7 +120,7 @@ pub(super) fn configure_dsn(
                 .in_current_span()
             }),
             SegmentHeaderBySegmentIndexesRequestHandler::create(move |_, req| {
-                debug!(?req, "Segment headers request received.");
+                info!(?req, "Segment headers request received.");
 
                 let node_client = node_client.clone();
                 let req = req.clone();
