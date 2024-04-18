@@ -86,6 +86,7 @@ where
 
     /// Fast way to get piece using various caches
     pub async fn get_piece_fast(&self, piece_index: PieceIndex) -> Option<Piece> {
+        info!("get piece fast");
         let in_progress_piece_mutex = Arc::new(AsyncMutex::new(None));
         // Take lock before anything else, set to `None` when another piece getting is already in
         // progress

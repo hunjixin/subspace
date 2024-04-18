@@ -649,7 +649,7 @@ where
                 continue;
             }
 
-            trace!(%piece_index, "Piece needs to be cached #2");
+            info!(%piece_index, "Piece needs to be cached #2");
 
             let result = piece_getter.get_piece(piece_index).await;
 

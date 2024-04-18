@@ -2,6 +2,7 @@ use crate::commands::farm::DsnArgs;
 use parking_lot::Mutex;
 use prometheus_client::registry::Registry;
 use std::collections::HashSet;
+use std::env;
 use std::path::Path;
 use std::sync::{Arc, Weak};
 use subspace_farmer::farmer_cache::FarmerCache;
@@ -65,6 +66,7 @@ pub(super) fn configure_dsn(
         farmer_cache.clone(),
         prometheus_metrics_registry,
     );
+    let refuse_request = env::var("REFUSE_REQUEST").unwrap_or("".to_string()) == "1";
     let config = Config {
         reserved_peers,
         listen_on,
@@ -78,6 +80,10 @@ pub(super) fn configure_dsn(
                 let farmer_cache = farmer_cache.clone();
 
                 async move {
+                    if refuse_request {
+                        return None;
+                    }
+
                     let key = RecordKey::from(piece_index.to_multihash());
                     let piece_from_cache = farmer_cache.get_piece(key).await;
 
@@ -126,6 +132,10 @@ pub(super) fn configure_dsn(
                 let req = req.clone();
 
                 async move {
+                    if refuse_request {
+                        return None;
+                    }
+                    
                     let internal_result = match req {
                         SegmentHeaderRequest::SegmentIndexes { segment_indexes } => {
                             debug!(
