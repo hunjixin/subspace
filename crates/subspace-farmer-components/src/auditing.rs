@@ -9,6 +9,8 @@ use subspace_core_primitives::{
 };
 use subspace_verification::is_within_solution_range;
 use thiserror::Error;
+use tokio::sync::Semaphore;
+use tracing::info;
 
 /// Errors that happen during proving
 #[derive(Debug, Error)]
@@ -116,6 +118,8 @@ where
 {
     let public_key_hash = public_key.hash();
 
+   // let semaphore = Arc::new(Semaphore::new(download_count as usize));
+    info!("read count {}", sectors_metadata.len());
     // Create auditing info for all sectors in parallel
     sectors_metadata
         .par_iter()
