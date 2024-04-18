@@ -9,7 +9,6 @@ use subspace_core_primitives::{
 };
 use subspace_verification::is_within_solution_range;
 use thiserror::Error;
-use tokio::sync::Semaphore;
 use tracing::info;
 
 /// Errors that happen during proving
