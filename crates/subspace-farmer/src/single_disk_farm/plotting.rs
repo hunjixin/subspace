@@ -588,7 +588,7 @@ where
         .map_err(|error| PlottingError::FailedToSubscribeArchivedSegments { error })?;
 
     while let Some(segment_header) = archived_segments_notifications.next().await {
-        debug!(?segment_header, "New archived segment");
+        info!(?segment_header, "New archived segment");
         if let Err(error) = node_client
             .acknowledge_archived_segment_header(segment_header.segment_index())
             .await
@@ -665,7 +665,7 @@ where
 
     loop {
         let archived_segment_header = *archived_segments_receiver.borrow_and_update();
-        trace!(
+        info!(
             segment_index = %archived_segment_header.segment_index(),
             "New archived segment received",
         );
