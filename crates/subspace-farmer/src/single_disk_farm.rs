@@ -51,7 +51,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::{fs, io, mem};
+use std::{env, fs, io, mem};
 use subspace_core_primitives::crypto::kzg::Kzg;
 use subspace_core_primitives::crypto::{blake3_hash, Scalar};
 use subspace_core_primitives::{
@@ -761,14 +761,18 @@ impl SingleDiskFarm {
             (Some(sender), Some(receiver))
         };
 
-        let farming_thread_pool = ThreadPoolBuilder::new()
-            .thread_name(move |thread_index| format!("farming-{farm_index}.{thread_index}"))
-            .num_threads(farming_thread_pool_size)
+        let reading_thread_pool = env::var("READ_POOL_SIZE")
+        .map_err(|_|"read read pool size fail"
+        ).and_then(|v|v.parse::<usize>().map_err(|_|"parse read pool env fail")).unwrap_or(4);
+        info!(%reading_thread_pool, "use read thread pool");
+        let farm_reading_thread_pool = ThreadPoolBuilder::new()
+            .thread_name(move |thread_index| format!("farm-reading-{farm_index}.{thread_index}"))
+            .num_threads(reading_thread_pool)
             .spawn_handler(tokio_rayon_spawn_handler())
             .build()
             .map_err(SingleDiskFarmError::FailedToCreateThreadPool)?;
         let farming_plot_fut = tokio::task::spawn_blocking(|| {
-            farming_thread_pool
+            farm_reading_thread_pool
                 .install(move || {
                     #[cfg(windows)]
                     {
@@ -782,14 +786,20 @@ impl SingleDiskFarm {
                         RayonFiles::open(&directory.join(Self::PLOT_FILE))
                     }
                 })
-                .map(|farming_plot| (farming_plot, farming_thread_pool))
+                .map(|farming_plot| (farming_plot, farm_reading_thread_pool))
         });
 
-        let (farming_plot, farming_thread_pool) =
+        let (farming_plot, _farm_reading_thread_pool) =
             AsyncJoinOnDrop::new(farming_plot_fut, false).await??;
 
         faster_read_sector_record_chunks_mode_barrier.wait().await;
 
+        let farming_thread_pool = ThreadPoolBuilder::new()
+        .thread_name(move |thread_index| format!("farming-{farm_index}.{thread_index}"))
+        .num_threads(farming_thread_pool_size)
+        .spawn_handler(tokio_rayon_spawn_handler())
+        .build()
+        .map_err(SingleDiskFarmError::FailedToCreateThreadPool)?;
         let (read_sector_record_chunks_mode, farming_plot, farming_thread_pool) = {
             // Error doesn't matter here
             let _permit = faster_read_sector_record_chunks_mode_concurrency
