@@ -22,7 +22,7 @@ use subspace_core_primitives::pieces::{Piece, PieceIndex};
 use subspace_farmer_components::PieceGetter;
 use subspace_networking::utils::multihash::ToMultihash;
 use subspace_networking::utils::piece_provider::{PieceProvider, PieceValidator};
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace, warn};
 
 pub mod piece_validator;
 
@@ -115,6 +115,36 @@ where
         {
             trace!(%piece_index, "Got piece from farmer cache successfully");
             return Some(piece);
+        }
+
+        let piece_cache_path = env::var("PIECE_CACHE_NFS_PATH");
+        if let Ok(piece_cache_path) = piece_cache_path {
+            let base_dir = std::path::PathBuf::from(piece_cache_path);
+            let segment_key = piece_index.segment_index();
+            let piece_key = piece_index.to_string();
+            let segment_dir = base_dir.join(segment_key.to_string());
+            let piece_path = segment_dir.join(piece_key.clone());
+            info!(%piece_index, "Try to read piece from piece cache dir {:?}", piece_path);
+            let piece = std::fs::read(piece_path)
+                .map_err(|e| anyhow!("read piece fail {:?}", e))
+                .and_then(|piece_data| {
+                    piece_data
+                        .try_into()
+                        .map_err(|e| anyhow!("data is not piece {:?}", e))
+                });
+            match piece {
+                Ok(piece) => {
+                    info!(%piece_index, "Success Get piece from piece cache serve");
+                    return Some(piece);
+                }
+                Err(error) => {
+                    warn!(
+                        %error,
+                        %piece_index,
+                        "Failed to read piece from piece cache"
+                    );
+                }
+            }
         }
 
         // L2 piece acquisition

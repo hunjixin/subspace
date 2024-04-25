@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::{Arc, Weak};
 use subspace_farmer::farm::plotted_pieces::PlottedPieces;
 use subspace_farmer::farmer_cache::FarmerCache;
-use subspace_farmer::node_client::NodeClientExt;
+use subspace_farmer::node_client::{NodeClient, NodeClientExt};
 use subspace_farmer::KNOWN_PEERS_CACHE_SIZE;
 use subspace_networking::libp2p::identity::Keypair;
 use subspace_networking::libp2p::multiaddr::Protocol;
@@ -234,7 +234,7 @@ where
                 .in_current_span()
             }),
             SegmentHeaderBySegmentIndexesRequestHandler::create(move |_, req| {
-                debug!(?req, "Segment headers request received.");
+                info!(?req, "Segment headers request received.");
 
                 let node_client = node_client.clone();
 

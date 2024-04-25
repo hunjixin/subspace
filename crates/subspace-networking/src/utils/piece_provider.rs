@@ -230,7 +230,7 @@ where
                 debug!(%peer_id, %piece_index, "Piece request returned empty piece");
             }
             Err(error) => {
-                debug!(%peer_id, %piece_index, ?error, "Piece request failed");
+                info!(%peer_id, %piece_index, ?error, "Piece request failed");
             }
         }
 

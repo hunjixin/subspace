@@ -28,7 +28,6 @@ use subspace_farmer::farmer_piece_getter::piece_validator::SegmentCommitmentPiec
 use subspace_farmer::farmer_piece_getter::{DsnCacheRetryPolicy, FarmerPieceGetter};
 use subspace_farmer::node_client::caching_proxy_node_client::CachingProxyNodeClient;
 use subspace_farmer::node_client::rpc_node_client::RpcNodeClient;
-use subspace_farmer::node_client::NodeClient;
 use subspace_farmer::plotter::cpu::CpuPlotter;
 #[cfg(feature = "cuda")]
 use subspace_farmer::plotter::gpu::cuda::CudaRecordsEncoder;
@@ -48,6 +47,7 @@ use subspace_farmer::utils::{
     recommended_number_of_farming_threads, run_future_in_dedicated_thread,
     thread_pool_core_indices, AsyncJoinOnDrop,
 };
+use subspace_farmer::NodeClient;
 use subspace_farmer_components::reading::ReadSectorRecordChunksMode;
 use subspace_farmer_components::PieceGetter;
 use subspace_kzg::Kzg;
@@ -58,11 +58,11 @@ use tokio::sync::{Barrier, Semaphore};
 use tracing::{error, info, info_span, warn, Instrument};
 
 /// Get piece retry attempts number.
-const PIECE_GETTER_MAX_RETRIES: u16 = 7;
+pub const PIECE_GETTER_MAX_RETRIES: u16 = 7;
 /// Defines initial duration between get_piece calls.
-const GET_PIECE_INITIAL_INTERVAL: Duration = Duration::from_secs(5);
+pub const GET_PIECE_INITIAL_INTERVAL: Duration = Duration::from_secs(5);
 /// Defines max duration between get_piece calls.
-const GET_PIECE_MAX_INTERVAL: Duration = Duration::from_secs(40);
+pub const GET_PIECE_MAX_INTERVAL: Duration = Duration::from_secs(40);
 /// NOTE: for large gaps between the plotted part and the end of the file plot cache will result in
 /// very long period of writing zeroes on Windows, see https://stackoverflow.com/q/78058306/3806795
 const MAX_SPACE_PLEDGED_FOR_PLOT_CACHE_ON_WINDOWS: u64 = 7 * 1024 * 1024 * 1024 * 1024;
@@ -563,6 +563,8 @@ where
         }
     }
     let plotter = Arc::new(PoolPlotter::new(plotters, PLOTTING_RETRY_INTERVAL));
+
+    info!(%farming_thread_pool_size, "use farming thread pool size");
 
     let (farms, plotting_delay_senders) = {
         let info_mutex = &AsyncMutex::new(());

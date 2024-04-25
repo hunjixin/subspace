@@ -9,6 +9,7 @@
 //! same process.
 
 pub mod caching_proxy_node_client;
+pub mod node_retry_rpc_client;
 pub mod rpc_node_client;
 
 use async_trait::async_trait;

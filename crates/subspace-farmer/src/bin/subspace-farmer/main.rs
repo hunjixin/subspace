@@ -33,6 +33,7 @@ enum Command {
     Farm(commands::farm::FarmingArgs),
     /// Farming cluster
     Cluster(commands::cluster::ClusterArgs),
+    Cache(commands::cacheserver::CacheServerArgs),
     /// Run various benchmarks
     #[clap(subcommand)]
     Benchmark(commands::benchmark::BenchmarkArgs),
@@ -110,6 +111,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Cluster(cluster_args) => {
             commands::cluster::cluster::<PosTable>(cluster_args).await?;
+        }
+        Command::Cache(cache_server_args) => {
+            commands::cacheserver::cache_server(cache_server_args).await?;
         }
         Command::Benchmark(benchmark_args) => {
             commands::benchmark::benchmark(benchmark_args)?;
