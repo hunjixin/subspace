@@ -53,7 +53,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::{fs, io, mem};
+use std::{env, fs, io, mem};
 use subspace_core_primitives::crypto::kzg::Kzg;
 use subspace_core_primitives::crypto::{blake3_hash, Scalar};
 use subspace_core_primitives::{
@@ -737,14 +737,21 @@ impl SingleDiskFarm {
         let sectors_indices_left_to_plot =
             metadata_header.plotted_sector_count..target_sector_count;
 
-        let farming_thread_pool = ThreadPoolBuilder::new()
-            .thread_name(move |thread_index| format!("farming-{farm_index}.{thread_index}"))
-            .num_threads(farming_thread_pool_size)
+        let reading_pool_size = env::var("READING_POOL_SIZE")
+        .map_err(|_|"reading pool size fail")
+        .and_then(|v|v.parse::<usize>().map_err(|_|"read pool size format error"))
+        .unwrap_or(farming_thread_pool_size);
+        info!(%reading_pool_size, "use reading pool size");
+
+        let farm_reading_thread_pool = ThreadPoolBuilder::new()
+            .thread_name(move |thread_index| format!("farm-reading-{farm_index}.{thread_index}"))
+            .num_threads(reading_pool_size)
             .spawn_handler(tokio_rayon_spawn_handler())
             .build()
             .map_err(SingleDiskFarmError::FailedToCreateThreadPool)?;
+
         let farming_plot_fut = tokio::task::spawn_blocking(|| {
-            farming_thread_pool
+            farm_reading_thread_pool
                 .install(move || {
                     #[cfg(windows)]
                     {
@@ -758,14 +765,20 @@ impl SingleDiskFarm {
                         RayonFiles::open(&directory.join(Self::PLOT_FILE))
                     }
                 })
-                .map(|farming_plot| (farming_plot, farming_thread_pool))
+                .map(|farming_plot| (farming_plot, farm_reading_thread_pool))
         });
 
-        let (farming_plot, farming_thread_pool) =
+        let (farming_plot, farm_reading_thread_pool) =
             AsyncJoinOnDrop::new(farming_plot_fut, false).await??;
 
         faster_read_sector_record_chunks_mode_barrier.wait().await;
 
+        let farming_thread_pool = ThreadPoolBuilder::new()
+        .thread_name(move |thread_index| format!("farming-{farm_index}.{thread_index}"))
+        .num_threads(farming_thread_pool_size)
+        .spawn_handler(tokio_rayon_spawn_handler())
+        .build()
+        .map_err(SingleDiskFarmError::FailedToCreateThreadPool)?;
         let (read_sector_record_chunks_mode, farming_plot, farming_thread_pool) = {
             // Error doesn't matter here
             let _permit = faster_read_sector_record_chunks_mode_concurrency
@@ -933,6 +946,7 @@ impl SingleDiskFarm {
                         handlers,
                         sectors_being_modified,
                         slot_info_notifications: slot_info_forwarder_receiver,
+                        reading_thread_pool:  farm_reading_thread_pool,
                         thread_pool: farming_thread_pool,
                         read_sector_record_chunks_mode,
                         global_mutex,
@@ -1333,15 +1347,15 @@ impl SingleDiskFarm {
 
         #[cfg(windows)]
         let plot_file = UnbufferedIoFileWindows::open(&directory.join(Self::PLOT_FILE))?;
-
+        
         if plot_file.size()? != plot_file_size {
-            // Allocating the whole file (`set_len` below can create a sparse file, which will cause
-            // writes to fail later)
-            plot_file
+         // Allocating the whole file (`set_len` below can create a sparse file, which will cause
+                // writes to fail later)
+                plot_file
                 .preallocate(plot_file_size)
                 .map_err(SingleDiskFarmError::CantPreallocatePlotFile)?;
-            // Truncating file (if necessary)
-            plot_file.set_len(plot_file_size)?;
+                // Truncating file (if necessary)
+                plot_file.set_len(plot_file_size)?;
         }
 
         let plot_file = Arc::new(plot_file);
@@ -2187,6 +2201,8 @@ where
     OP: FileExt + Sync,
     FP: ReadAtSync,
 {
+    return Ok(ReadSectorRecordChunksMode::ConcurrentChunks);
+    
     info!("Benchmarking faster proving method");
 
     let mut sector_bytes = vec![0u8; sector_size];

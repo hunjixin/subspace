@@ -133,7 +133,6 @@ where
             read_sector_record_chunks_mode: mode,
             table_generator,
         } = options;
-
         let audit_results = audit_plot_sync(
             public_key,
             &slot_info.global_challenge,
@@ -142,8 +141,8 @@ where
             sectors_metadata,
             sectors_being_modified,
         )?;
-
-        Ok(audit_results
+  
+        let result = audit_results
             .into_iter()
             .filter_map(|audit_results| {
                 let sector_index = audit_results.sector_index;
@@ -175,7 +174,8 @@ where
 
                 Some((sector_index, sector_solutions))
             })
-            .collect())
+            .collect();
+            Ok(result)
     }
 }
 
@@ -190,6 +190,7 @@ pub(super) struct FarmingOptions<NC, PlotAudit> {
     pub(super) handlers: Arc<Handlers>,
     pub(super) sectors_being_modified: Arc<AsyncRwLock<HashSet<SectorIndex>>>,
     pub(super) slot_info_notifications: mpsc::Receiver<SlotInfo>,
+    pub(super) reading_thread_pool: ThreadPool,
     pub(super) thread_pool: ThreadPool,
     pub(super) read_sector_record_chunks_mode: ReadSectorRecordChunksMode,
     pub(super) global_mutex: Arc<AsyncMutex<()>>,
@@ -218,6 +219,7 @@ where
         handlers,
         sectors_being_modified,
         mut slot_info_notifications,
+        reading_thread_pool,
         thread_pool,
         read_sector_record_chunks_mode,
         global_mutex,
@@ -251,7 +253,7 @@ where
             let mut sectors_solutions = {
                 let sectors_being_modified = &*sectors_being_modified.read().await;
 
-                thread_pool.install(|| {
+                reading_thread_pool.install(|| {
                     let _span_guard = span.enter();
 
                     plot_audit.audit(PlotAuditOptions::<PosTable> {
