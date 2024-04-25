@@ -24,6 +24,7 @@ type PosTable = ChiaTable;
 enum Command {
     /// Start a farmer, does plotting and farming
     Farm(commands::farm::FarmingArgs),
+    Cache(commands::cacheserver::CacheServerArgs),
     /// Run various benchmarks
     #[clap(subcommand)]
     Benchmark(commands::benchmark::BenchmarkArgs),
@@ -85,6 +86,9 @@ async fn main() -> anyhow::Result<()> {
     match command {
         Command::Farm(farming_args) => {
             commands::farm::farm::<PosTable>(farming_args).await?;
+        }
+        Command::Cache(cache_server_args) => {
+            commands::cacheserver::cache_server(cache_server_args).await?;
         }
         Command::Benchmark(benchmark_args) => {
             commands::benchmark::benchmark(benchmark_args)?;
