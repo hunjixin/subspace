@@ -65,6 +65,9 @@ pub mod thread_pool_manager;
 pub mod utils;
 
 pub use jsonrpsee;
+pub use node_client::node_retry_rpc_client::NodeRetryRpcClient;
+pub use node_client::{Error as RpcClientError, NodeClient};
+use std::num::NonZeroUsize;
 
 /// Size of the LRU cache for peers.
 pub const KNOWN_PEERS_CACHE_SIZE: u32 = 100;

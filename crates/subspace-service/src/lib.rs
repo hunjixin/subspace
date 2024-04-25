@@ -951,11 +951,13 @@ where
 
             async move {
                 loop {
-                    let best_seen_block = sync_service
-                        .status()
-                        .await
-                        .map(|status| status.best_seen_block.unwrap_or_default())
-                        .unwrap_or_default();
+                    let status = sync_service.status().await;
+                    let mut best_seen_block = 0u32;
+                    if let Ok(st) = status {
+                        best_seen_block = st.best_seen_block.unwrap_or_default();
+                        println!("sync status {:?}", st);
+                    }
+
                     sync_target_block_number.store(best_seen_block, Ordering::Relaxed);
 
                     tokio::time::sleep(SYNC_TARGET_UPDATE_INTERVAL).await;

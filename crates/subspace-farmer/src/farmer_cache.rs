@@ -290,7 +290,7 @@ where
         let (mut stored_pieces, mut dangling_free_offsets) =
             mem::take(&mut *self.piece_caches.write().await).reuse();
 
-        debug!("Collecting pieces that were in the cache before");
+        info!("Collecting pieces that were in the cache before");
 
         if let Some(metrics) = &self.metrics {
             metrics.piece_cache_capacity_total.set(0);
@@ -466,7 +466,7 @@ where
             tokio::time::sleep(INITIAL_SYNC_FARM_INFO_CHECK_INTERVAL).await;
         };
 
-        debug!(%last_segment_index, "Identified last segment index");
+        info!(%last_segment_index, "Identified last segment index");
 
         // Collect all the piece indices that need to be stored, we will sort them later
         let segment_indices = Vec::from_iter(SegmentIndex::ZERO..=last_segment_index);
@@ -712,12 +712,12 @@ where
                     .await
                     .should_include_key(self.peer_id, piece_index)
                 {
-                    trace!(%piece_index, "Piece doesn't need to be cached #2");
+                    info!(%piece_index, "Piece doesn't need to be cached #2");
 
                     continue;
                 }
 
-                trace!(%piece_index, "Piece needs to be cached #1");
+                info!(%piece_index, "Piece needs to be cached #1");
 
                 self.persist_piece_in_cache(piece_index, piece).await;
             }

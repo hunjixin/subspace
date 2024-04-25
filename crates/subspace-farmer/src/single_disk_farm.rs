@@ -2498,6 +2498,7 @@ where
     OP: FileExt + Sync,
     FP: ReadAtSync,
 {
+    return Ok(ReadSectorRecordChunksMode::ConcurrentChunks);
     info!("Benchmarking faster proving method");
 
     let mut sector_bytes = vec![0u8; sector_size];
