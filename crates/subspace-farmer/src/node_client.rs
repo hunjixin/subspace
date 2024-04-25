@@ -1,3 +1,4 @@
+pub(crate) mod node_retry_rpc_client;
 pub(crate) mod node_rpc_client;
 
 use async_trait::async_trait;

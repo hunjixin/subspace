@@ -49,11 +49,7 @@ impl farm::PieceCache for DiskPieceCache {
         &self,
         offset: PieceCacheOffset,
     ) -> Result<Option<PieceIndex>, FarmError> {
-        if let Some(piece_cache) = &self.maybe_piece_cache {
-            farm::PieceCache::read_piece_index(piece_cache, offset).await
-        } else {
-            Ok(None)
-        }
+        farm::PieceCache::read_piece_index(piece_cache, offset).await
     }
 
     async fn read_piece(&self, offset: PieceCacheOffset) -> Result<Option<Piece>, FarmError> {

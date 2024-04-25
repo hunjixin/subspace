@@ -8,7 +8,7 @@ use libp2p::PeerId;
 use std::collections::HashSet;
 use std::fmt;
 use subspace_core_primitives::{Piece, PieceIndex};
-use tracing::{debug, trace, warn};
+use tracing::{debug, trace, info, warn};
 
 /// Validates piece against using its commitment.
 #[async_trait]
@@ -124,10 +124,10 @@ where
                 }
             }
             Ok(PieceByIndexResponse { piece: None }) => {
-                debug!(%peer_id, %piece_index, "Piece request returned empty piece.");
+                info!(%peer_id, %piece_index, "Piece request returned empty piece.");
             }
             Err(error) => {
-                debug!(%peer_id, %piece_index, ?error, "Piece request failed.");
+                info!(%peer_id, %piece_index, ?error, "Piece request failed.");
             }
         }
 

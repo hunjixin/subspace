@@ -9,15 +9,18 @@ use backoff::ExponentialBackoff;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::error::Error;
-use std::fmt;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Weak};
+use std::{env, fmt};
 use subspace_core_primitives::{Piece, PieceIndex};
 use subspace_farmer_components::PieceGetter;
 use subspace_networking::libp2p::kad::RecordKey;
+use subspace_networking::libp2p::multiaddr::Protocol;
+use subspace_networking::libp2p::{Multiaddr, PeerId};
 use subspace_networking::utils::multihash::ToMultihash;
 use subspace_networking::utils::piece_provider::{PieceProvider, PieceValidator};
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace, warn};
 
 const MAX_RANDOM_WALK_ROUNDS: usize = 15;
 
@@ -125,6 +128,38 @@ where
         if let Some(piece) = inner.farmer_cache.get_piece(key).await {
             trace!(%piece_index, "Got piece from farmer cache successfully");
             return Some(piece);
+        }
+
+        let addr_var = env::var("PIECE_CACHE_SERVER_ADDR");
+        if let Ok(addr_str) = addr_var {
+            match Multiaddr::from_str(addr_str.as_str()) {
+                Ok(mut addr) => {
+                    info!(%piece_index, "Try toi get piuece from cache server");
+                    let peer_id: Option<PeerId> = addr.pop().and_then(|protocol| {
+                        if let Protocol::P2p(peer_id) = protocol {
+                            Some(peer_id)
+                        } else {
+                            None
+                        }
+                    });
+
+                    if let Some(peer_id) = peer_id {
+                        if let Some(piece) = inner
+                            .piece_provider
+                            .get_piece_from_peer(peer_id, piece_index)
+                            .await
+                        {
+                            info!(%piece_index, "Success Get piece from piece cache serve");
+                            return Some(piece);
+                        }
+                    }
+
+                    warn!(%piece_index, "Unable to get piece from piece cache server ");
+                }
+                Err(e) => {
+                    error!(%e, "Piece cache server address not correct ");
+                }
+            }
         }
 
         // L2 piece acquisition
