@@ -16,7 +16,7 @@ where
 {
     fn read_at(&self, buf: &mut [u8], offset: u64) -> io::Result<()> {
         let thread_index = rayon::current_thread_index().unwrap_or_default();
-        let file = self.files.get(thread_index).ok_or_else(|| {
+        let file = self.files.get(thread_index%self.files.len()).ok_or_else(|| {
             io::Error::new(io::ErrorKind::Other, "No files entry for this rayon thread")
         })?;
 

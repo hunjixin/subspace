@@ -1,4 +1,5 @@
 pub(crate) mod benchmark;
+pub(crate) mod cacheserver;
 pub(crate) mod farm;
 mod info;
 mod scrub;

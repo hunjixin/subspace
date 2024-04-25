@@ -55,6 +55,9 @@ pub mod utils;
 
 pub use identity::Identity;
 pub use jsonrpsee;
+pub use node_client::node_retry_rpc_client::NodeRetryRpcClient;
+pub use node_client::node_rpc_client::NodeRpcClient;
+pub use node_client::{Error as RpcClientError, NodeClient};
 use std::num::NonZeroUsize;
 
 /// Size of the LRU cache for peers.

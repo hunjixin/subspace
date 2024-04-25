@@ -226,7 +226,7 @@ where
         stored_pieces.resize(new_piece_caches.len(), HashMap::default());
         free_offsets.resize(new_piece_caches.len(), VecDeque::default());
 
-        debug!("Collecting pieces that were in the cache before");
+        info!("Collecting pieces that were in the cache before");
 
         // Build cache state of all backends
         let maybe_caches_futures = stored_pieces
@@ -366,7 +366,7 @@ where
             tokio::time::sleep(INITIAL_SYNC_FARM_INFO_CHECK_INTERVAL).await;
         };
 
-        debug!(%last_segment_index, "Identified last segment index");
+        info!(%last_segment_index, "Identified last segment index");
 
         worker_state.heap.clear();
         // Change limit to number of pieces
@@ -382,6 +382,8 @@ where
                 worker_state.heap.insert(KeyWrapper(piece_index));
             }
         }
+
+        info!("Cache piece size {}", worker_state.heap.size());
 
         // This hashset is faster than `heap`
         // Clippy complains about `RecordKey`, but it is not changing here, so it is fine
@@ -603,12 +605,12 @@ where
                     .heap
                     .should_include_key(KeyWrapper(piece_index))
                 {
-                    trace!(%piece_index, "Piece doesn't need to be cached #2");
+                    info!(%piece_index, "Piece doesn't need to be cached #2");
 
                     continue;
                 }
 
-                trace!(%piece_index, "Piece needs to be cached #1");
+                info!(%piece_index, "Piece needs to be cached #1");
 
                 self.persist_piece_in_cache(piece_index, piece, worker_state)
                     .await;
