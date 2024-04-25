@@ -29,7 +29,7 @@ use std::task::{Context, Poll};
 use std::{fmt, iter, mem};
 use subspace_core_primitives::pieces::{Piece, PieceIndex};
 use tokio_stream::StreamMap;
-use tracing::{debug, trace, warn, Instrument};
+use tracing::{debug, trace, info, warn,Instrument};
 
 /// Validates piece against using its commitment.
 #[async_trait]
@@ -173,6 +173,7 @@ where
                             );
                         }
                         Err(error) => {
+                            //self.node.ban_peer(provider_id).await;
                             debug!(
                                 %piece_index,
                                 key = hex::encode(&key),
@@ -230,7 +231,7 @@ where
                 debug!(%peer_id, %piece_index, "Piece request returned empty piece");
             }
             Err(error) => {
-                debug!(%peer_id, %piece_index, ?error, "Piece request failed");
+                info!(%peer_id, %piece_index, ?error, "Piece request failed");
             }
         }
 

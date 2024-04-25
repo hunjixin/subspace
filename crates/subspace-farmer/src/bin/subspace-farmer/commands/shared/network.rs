@@ -231,7 +231,7 @@ where
                 .in_current_span()
             }),
             SegmentHeaderBySegmentIndexesRequestHandler::create(move |_, req| {
-                debug!(?req, "Segment headers request received.");
+                info!(?req, "Segment headers request received.");
 
                 let node_client = node_client.clone();
 

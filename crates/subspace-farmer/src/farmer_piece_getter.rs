@@ -3,6 +3,7 @@
 use crate::farm::plotted_pieces::PlottedPieces;
 use crate::farmer_cache::FarmerCache;
 use crate::node_client::NodeClient;
+use anyhow::anyhow;
 use async_lock::RwLock as AsyncRwLock;
 use async_trait::async_trait;
 use backoff::backoff::Backoff;
@@ -12,17 +13,17 @@ use futures::channel::mpsc;
 use futures::future::FusedFuture;
 use futures::stream::FuturesUnordered;
 use futures::{stream, FutureExt, Stream, StreamExt};
-use std::fmt;
 use std::hash::Hash;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Weak};
 use std::task::{Context, Poll};
+use std::{env, fmt};
 use subspace_core_primitives::pieces::{Piece, PieceIndex};
 use subspace_farmer_components::PieceGetter;
 use subspace_networking::utils::multihash::ToMultihash;
 use subspace_networking::utils::piece_provider::{PieceProvider, PieceValidator};
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace, warn};
 
 pub mod piece_validator;
 
@@ -100,9 +101,9 @@ where
     }
 
     async fn get_piece_fast_internal(&self, piece_index: PieceIndex) -> Option<Piece> {
-        let inner = &self.inner;
+        let inner: &Arc<Inner<FarmIndex, PV, NC>> = &self.inner;
 
-        trace!(%piece_index, "Getting piece from farmer cache");
+        info!(%piece_index, "Getting piece from farmer cache");
         if let Some(piece) = inner
             .farmer_cache
             .get_piece(piece_index.to_multihash())
@@ -110,6 +111,36 @@ where
         {
             trace!(%piece_index, "Got piece from farmer cache successfully");
             return Some(piece);
+        }
+
+        let piece_cache_path = env::var("PIECE_CACHE_NFS_PATH");
+        if let Ok(piece_cache_path) = piece_cache_path {
+            let base_dir = std::path::PathBuf::from(piece_cache_path);
+            let segment_key = piece_index.segment_index();
+            let piece_key = piece_index.to_string();
+            let segment_dir = base_dir.join(segment_key.to_string());
+            let piece_path = segment_dir.join(piece_key.clone());
+            info!(%piece_index, "Try to read piece from piece cache dir {:?}", piece_path);
+            let piece = std::fs::read(piece_path)
+                .map_err(|e| anyhow!("read piece fail {:?}", e))
+                .and_then(|piece_data| {
+                    piece_data
+                        .try_into()
+                        .map_err(|e| anyhow!("data is not piece {:?}", e))
+                });
+            match piece {
+                Ok(piece) => {
+                    info!(%piece_index, "Success Get piece from piece cache serve");
+                    return Some(piece);
+                }
+                Err(error) => {
+                    warn!(
+                        %error,
+                        %piece_index,
+                        "Failed to read piece from piece cache"
+                    );
+                }
+            }
         }
 
         // L2 piece acquisition
@@ -214,6 +245,7 @@ where
 {
     async fn get_piece(&self, piece_index: PieceIndex) -> anyhow::Result<Option<Piece>> {
         {
+            info!(%piece_index, "get_piece invoke");
             let retries = AtomicU32::new(0);
             let max_retries = u32::from(self.inner.dsn_cache_retry_policy.max_retries);
             let mut backoff = self.inner.dsn_cache_retry_policy.backoff.clone();
@@ -238,7 +270,7 @@ where
                     return Ok(None);
                 }
 
-                trace!(%piece_index, current_attempt, "Couldn't get a piece fast, retrying...");
+                info!(%piece_index, current_attempt, "Couldn't get a piece fast, retrying...");
 
                 Err(backoff::Error::transient("Couldn't get piece fast"))
             });
@@ -269,12 +301,13 @@ where
     where
         PieceIndices: IntoIterator<Item = PieceIndex, IntoIter: Send> + Send + 'a,
     {
+        info!("get_pieces invoke");
         let (tx, mut rx) = mpsc::unbounded();
 
         let fut = async move {
             let tx = &tx;
 
-            debug!("Getting pieces from farmer cache");
+            info!("Getting pieces from farmer cache");
             let mut pieces_not_found_in_farmer_cache = Vec::new();
             let mut pieces_in_farmer_cache =
                 self.inner.farmer_cache.get_pieces(piece_indices).await;
@@ -292,7 +325,44 @@ where
                 return;
             }
 
-            debug!(
+            let mut pieces_not_found_in_nfs_cache = Vec::new();
+            let piece_cache_path = env::var("PIECE_CACHE_NFS_PATH");
+            if let Ok(piece_cache_path) = piece_cache_path {
+                info!("read from nfs cache");
+                for piece_index in pieces_not_found_in_farmer_cache {
+                    let base_dir = std::path::PathBuf::from(&piece_cache_path);
+                    let segment_key = piece_index.segment_index();
+                    let piece_key = piece_index.to_string();
+                    let segment_dir = base_dir.join(segment_key.to_string());
+                    let piece_path = segment_dir.join(piece_key.clone());
+                    info!(%piece_index, "Try to read piece from piece cache dir {:?}", piece_path);
+                    let piece = std::fs::read(piece_path)
+                        .map_err(|e| anyhow!("read piece fail {:?}", e))
+                        .and_then(|piece_data| {
+                            piece_data
+                                .try_into()
+                                .map_err(|e| anyhow!("data is not piece {:?}", e))
+                        });
+                    match piece {
+                        Ok(piece) => {
+                            tx.unbounded_send((piece_index, Ok(Some(piece))))
+                                .expect("This future isn't polled after receiver is dropped; qed");
+                        }
+                        Err(error) => {
+                            warn!(
+                                %error,
+                                %piece_index,
+                                "Failed to read piece from piece cache"
+                            );
+                            pieces_not_found_in_nfs_cache.push(piece_index);
+                        }
+                    }
+                }
+            }
+
+            pieces_not_found_in_farmer_cache = pieces_not_found_in_nfs_cache;
+
+            info!(
                 remaining_piece_count = %pieces_not_found_in_farmer_cache.len(),
                 "Getting pieces from DSN cache"
             );
@@ -321,7 +391,7 @@ where
                 return;
             }
 
-            debug!(
+            info!(
                 remaining_piece_count = %pieces_not_found_in_dsn_cache.len(),
                 "Getting pieces from node"
             );
@@ -360,7 +430,7 @@ where
                 return;
             }
 
-            debug!(
+            info!(
                 remaining_piece_count = %pieces_not_found_on_node.len(),
                 "Some pieces were not easily reachable"
             );
@@ -460,7 +530,7 @@ where
 {
     async fn get_piece(&self, piece_index: PieceIndex) -> anyhow::Result<Option<Piece>> {
         let Some(piece_getter) = self.upgrade() else {
-            debug!("Farmer piece getter upgrade didn't succeed");
+            info!("Farmer piece getter upgrade didn't succeed");
             return Ok(None);
         };
 
@@ -476,6 +546,7 @@ where
     where
         PieceIndices: IntoIterator<Item = PieceIndex, IntoIter: Send> + Send + 'a,
     {
+        info!("get_pieces in cache");
         let Some(piece_getter) = self.upgrade() else {
             debug!("Farmer piece getter upgrade didn't succeed");
             return Ok(Box::new(stream::iter(
