@@ -8,7 +8,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 use std::sync::{Arc, Weak};
 use subspace_farmer::farmer_cache::FarmerCache;
-use subspace_farmer::node_client::node_rpc_client::NodeRpcClient;
+use subspace_farmer::NodeRpcClient;
 use subspace_farmer::node_client::{NodeClient, NodeClientExt};
 use subspace_farmer::utils::plotted_pieces::PlottedPieces;
 use subspace_farmer::KNOWN_PEERS_CACHE_SIZE;
