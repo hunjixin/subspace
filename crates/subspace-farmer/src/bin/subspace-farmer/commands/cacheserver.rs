@@ -292,6 +292,8 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                                     continue;
                                 }
                             }
+                        } else {
+                            
                         }
 
                         if !disable_detect_future_piece {
