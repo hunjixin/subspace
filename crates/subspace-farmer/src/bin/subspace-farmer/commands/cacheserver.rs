@@ -293,7 +293,7 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                                 }
                             }
                         } else {
-                            
+                            info!("no missing pieces")
                         }
 
                         if !disable_detect_future_piece {
