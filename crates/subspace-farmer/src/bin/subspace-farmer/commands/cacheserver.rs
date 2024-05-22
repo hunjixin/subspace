@@ -157,7 +157,7 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
             loop {
                 if let Some((piece_index,only_l1, result_sender)) = reciever.next().await {
                     if piece_storage.read().unwrap().has_piece(&piece_index) {
-                        return;
+                        continue;
                     }
 
                     let node = node.clone();
