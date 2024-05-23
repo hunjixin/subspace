@@ -1,4 +1,3 @@
-
 use crate::commands::shared::DiskFarm;
 use crate::utils::shutdown_signal;
 use anyhow::{anyhow, Result};
@@ -35,7 +34,7 @@ use tokio::time::{sleep, Duration, Instant};
 use tracing::{debug, error, info, warn, Instrument};
 use zeroize::Zeroizing;
 
-use crate::commands::shared::network::{NetworkArgs};
+use crate::commands::shared::network::NetworkArgs;
 
 /// Arguments for farmer
 #[derive(Debug, Parser)]
@@ -137,7 +136,7 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
         "farmer-networking".to_string(),
     )?;
 
-    let (sender, mut reciever) = channel::<(PieceIndex, bool,oneshot::Sender<Option<()>>)>(50);
+    let (sender, mut reciever) = channel::<(PieceIndex, bool, oneshot::Sender<Option<()>>)>(50);
     {
         let node = node.clone();
         let node_client = node_client.clone();
@@ -155,7 +154,7 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
             let semaphore = Arc::new(Semaphore::new(download_count as usize));
             info!("Start piece download consumer");
             loop {
-                if let Some((piece_index,only_l1, result_sender)) = reciever.next().await {
+                if let Some((piece_index, only_l1, result_sender)) = reciever.next().await {
                     if piece_storage.read().unwrap().has_piece(&piece_index) {
                         continue;
                     }
@@ -206,9 +205,9 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                                 return;
                             }
                         }
-       
+
                         error!(%piece_index, "Unable to download piece wait for next round");
-                        if let Err(Some(e)) = result_sender.send(Some(())) {
+                        if let Err(Some(e)) = result_sender.send(None) {
                             error!("Send download response fail {:?}", e);
                         };
                         drop(permit);
@@ -276,6 +275,7 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                     Ok(farmer_app_info) => {
                         let last_segment_index =
                             farmer_app_info.protocol_info.history_size.segment_index();
+
                         let missing_pieces: Vec<PieceIndex> = (SegmentIndex::ZERO
                             ..=last_segment_index)
                             .map(|segment_index| segment_index.segment_piece_indexes())
@@ -283,17 +283,27 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                             .filter(|a| !piece_storage.has_piece(a))
                             .rev()
                             .collect();
+
                         if missing_pieces.len() > 0 {
-                            info!("Start to download missing pieces {}", missing_pieces.len());
+                            info!(
+                                "Start to download missing pieces {}, latest piece index {}",
+                                missing_pieces.len(),
+                                last_segment_index.last_piece_index()
+                            );
                             for piece_index in missing_pieces {
                                 let (result_sender, _) = oneshot::channel::<Option<()>>();
-                                if let Err(e) = sender.send((piece_index, false, result_sender)).await {
+                                if let Err(e) =
+                                    sender.send((piece_index, false, result_sender)).await
+                                {
                                     warn!(%e, "Send piece index fail");
                                     continue;
                                 }
                             }
                         } else {
-                            info!("no missing pieces")
+                            info!(
+                                "no missing pieces, latest piece index {}",
+                                last_segment_index.last_piece_index()
+                            )
                         }
 
                         if !disable_detect_future_piece {
@@ -301,24 +311,27 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                             if let Ok(max_piece_index) = piece_storage.max_piece_index() {
                                 let mut next_piece_index = max_piece_index + PieceIndex::ONE;
                                 loop {
-                                    let (result_sender, result_recevier) = oneshot::channel::<Option<()>>();
-                                    if let Err(e) = sender.send((next_piece_index, true, result_sender)).await {
+                                    let (result_sender, result_recevier) =
+                                        oneshot::channel::<Option<()>>();
+                                    if let Err(e) =
+                                        sender.send((next_piece_index, true, result_sender)).await
+                                    {
                                         warn!(%e, "Send piece index fail");
                                         continue;
                                     }
-                                    
+
                                     //wait result to stop detect
-                                    match  result_recevier.await {
-                                        Ok(result) => {
-                                            match result  {
-                                                Some(()) => info!(%next_piece_index, "Success get piece more and node maybe sync slow"),
-                                                None=>{
-                                                    info!("no new piece index dectect");
-                                                    break;
-                                                }
+                                    match result_recevier.await {
+                                        Ok(result) => match result {
+                                            Some(()) => {
+                                                info!(%next_piece_index, "Success get piece more and node maybe sync slow")
                                             }
-                                        }
-                                        Err(e) =>{
+                                            None => {
+                                                info!("no new piece index dectect");
+                                                break;
+                                            }
+                                        },
+                                        Err(e) => {
                                             error!(%e, "receive result fail");
                                             break;
                                         }
@@ -595,21 +608,22 @@ fn configure_dsn(
 
     let default_config = Config::new(protocol_prefix, keypair, piece_storage.clone(), None);
 
-    let handler =   PieceByIndexRequestHandler::create(move |_, &PieceByIndexRequest { piece_index }| {
-        info!(?piece_index, "Piece request received. Trying cache...");
-        let piece_storage = piece_storage.clone();
-        async move {
-            let piece_from_cache = piece_storage.get_piece(&piece_index);
-            if let Err(e) = piece_from_cache {
-                warn!(%e, %piece_index,"get piece fail");
-                return None;
+    let handler =
+        PieceByIndexRequestHandler::create(move |_, &PieceByIndexRequest { piece_index }| {
+            info!(?piece_index, "Piece request received. Trying cache...");
+            let piece_storage = piece_storage.clone();
+            async move {
+                let piece_from_cache = piece_storage.get_piece(&piece_index);
+                if let Err(e) = piece_from_cache {
+                    warn!(%e, %piece_index,"get piece fail");
+                    return None;
+                }
+                Some(PieceByIndexResponse {
+                    piece: Some(piece_from_cache.unwrap()),
+                })
             }
-            Some(PieceByIndexResponse {
-                piece: Some(piece_from_cache.unwrap()),
-            })
-        }
-        .in_current_span()
-    });
+            .in_current_span()
+        });
     handler.protocol_config().request_timeout = std::time::Duration::from_secs(120);
     bootstrap_nodes.extend(reserved_peers.clone());
     let config = Config {
@@ -617,7 +631,8 @@ fn configure_dsn(
         listen_on,
         allow_non_global_addresses_in_dht: allow_private_ips,
         networking_parameters_registry,
-        request_response_protocols: vec![handler,
+        request_response_protocols: vec![
+            handler,
             SegmentHeaderBySegmentIndexesRequestHandler::create(move |peer_id, req| {
                 info!(?peer_id, ?req, "Segment headers request received.");
 
