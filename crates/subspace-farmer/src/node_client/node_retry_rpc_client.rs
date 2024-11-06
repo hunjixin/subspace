@@ -1,12 +1,13 @@
-use crate::node_client::{Error as RpcError, Error, NodeClient, NodeClientExt};
+use crate::node_client::{NodeClient, NodeClientExt};
+use anyhow::anyhow;
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
-use jsonrpsee::core::ClientError as JsonError;
 use reconnecting_jsonrpsee_ws_client::{rpc_params, Client, ExponentialBackoff};
 use std::fmt::{self};
 use std::pin::Pin;
 use std::sync::Arc;
-use subspace_core_primitives::{Piece, PieceIndex, SegmentHeader, SegmentIndex};
+use subspace_core_primitives::pieces::{Piece, PieceIndex};
+use subspace_core_primitives::segments::{SegmentHeader, SegmentIndex};
 use subspace_rpc_primitives::{
     FarmerAppInfo, RewardSignatureResponse, RewardSigningInfo, SlotInfo, SolutionResponse,
 };
@@ -18,7 +19,7 @@ pub struct NodeRetryRpcClient {
 }
 impl NodeRetryRpcClient {
     /// Create a new instance of [`NodeClient`].
-    pub async fn new(url: &str) -> Result<Self, JsonError> {
+    pub async fn new(url: &str) ->anyhow::Result<Self> {
         let client = Arc::new(
             Client::builder()
                 .retry_policy(ExponentialBackoff::from_millis(100))
@@ -39,7 +40,7 @@ impl fmt::Debug for NodeRetryRpcClient {
 
 #[async_trait]
 impl NodeClient for NodeRetryRpcClient {
-    async fn farmer_app_info(&self) -> Result<FarmerAppInfo, Error> {
+    async fn farmer_app_info(&self) -> anyhow::Result<FarmerAppInfo> {
         let raw = self
             .client
             .request("subspace_getFarmerAppInfo".to_string(), rpc_params![])
@@ -49,7 +50,7 @@ impl NodeClient for NodeRetryRpcClient {
 
     async fn subscribe_slot_info(
         &self,
-    ) -> Result<Pin<Box<dyn Stream<Item = SlotInfo> + Send + 'static>>, RpcError> {
+    ) -> anyhow::Result<Pin<Box<dyn Stream<Item = SlotInfo> + Send + 'static>>> {
         let subscription = self
             .client
             .subscribe(
@@ -75,7 +76,7 @@ impl NodeClient for NodeRetryRpcClient {
     async fn submit_solution_response(
         &self,
         solution_response: SolutionResponse,
-    ) -> Result<(), RpcError> {
+    ) -> anyhow::Result<()> {
         Ok(self
             .client
             .request(
@@ -88,7 +89,7 @@ impl NodeClient for NodeRetryRpcClient {
 
     async fn subscribe_reward_signing(
         &self,
-    ) -> Result<Pin<Box<dyn Stream<Item = RewardSigningInfo> + Send + 'static>>, RpcError> {
+    ) -> anyhow::Result<Pin<Box<dyn Stream<Item = RewardSigningInfo> + Send + 'static>>> {
         let subscription = self
             .client
             .subscribe(
@@ -115,7 +116,7 @@ impl NodeClient for NodeRetryRpcClient {
     async fn submit_reward_signature(
         &self,
         reward_signature: RewardSignatureResponse,
-    ) -> Result<(), RpcError> {
+    ) -> anyhow::Result<()> {
         Ok(self
             .client
             .request(
@@ -128,7 +129,7 @@ impl NodeClient for NodeRetryRpcClient {
 
     async fn subscribe_archived_segment_headers(
         &self,
-    ) -> Result<Pin<Box<dyn Stream<Item = SegmentHeader> + Send + 'static>>, RpcError> {
+    ) -> anyhow::Result<Pin<Box<dyn Stream<Item = SegmentHeader> + Send + 'static>>> {
         let subscription = self
             .client
             .subscribe(
@@ -154,7 +155,7 @@ impl NodeClient for NodeRetryRpcClient {
     async fn segment_headers(
         &self,
         segment_indexes: Vec<SegmentIndex>,
-    ) -> Result<Vec<Option<SegmentHeader>>, RpcError> {
+    ) -> anyhow::Result<Vec<Option<SegmentHeader>>> {
         let raw = self
             .client
             .request(
@@ -167,7 +168,7 @@ impl NodeClient for NodeRetryRpcClient {
         )?)
     }
 
-    async fn piece(&self, piece_index: PieceIndex) -> Result<Option<Piece>, RpcError> {
+    async fn piece(&self, piece_index: PieceIndex) -> anyhow::Result<Option<Piece>> {
         let raw = self
             .client
             .request("subspace_piece".to_string(), rpc_params![&piece_index])
@@ -176,7 +177,7 @@ impl NodeClient for NodeRetryRpcClient {
         let result = serde_json::from_str::<Option<Vec<u8>>>(raw.get())?;
         if let Some(bytes) = result {
             let piece = Piece::try_from(bytes.as_slice())
-                .map_err(|_| format!("Cannot convert piece. PieceIndex={}", piece_index))?;
+                .map_err(|_| anyhow!("Cannot convert piece. PieceIndex={}", piece_index))?;
 
             return Ok(Some(piece));
         }
@@ -187,7 +188,7 @@ impl NodeClient for NodeRetryRpcClient {
     async fn acknowledge_archived_segment_header(
         &self,
         segment_index: SegmentIndex,
-    ) -> Result<(), Error> {
+    ) -> anyhow::Result<()> {
         Ok(self
             .client
             .request(
@@ -203,8 +204,8 @@ impl NodeClient for NodeRetryRpcClient {
 impl NodeClientExt for NodeRetryRpcClient {
     async fn last_segment_headers(
         &self,
-        limit: u64,
-    ) -> Result<Vec<Option<SegmentHeader>>, RpcError> {
+        limit: u32,
+    ) -> anyhow::Result<Vec<Option<SegmentHeader>>> {
         let raw = self
             .client
             .request(

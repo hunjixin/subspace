@@ -29,7 +29,7 @@ use std::task::{Context, Poll};
 use std::{fmt, iter, mem};
 use subspace_core_primitives::pieces::{Piece, PieceIndex};
 use tokio_stream::StreamMap;
-use tracing::{debug, trace, warn};
+use tracing::{debug, trace, info, warn};
 
 /// Validates piece against using its commitment.
 #[async_trait]

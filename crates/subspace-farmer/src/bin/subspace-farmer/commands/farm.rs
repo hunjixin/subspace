@@ -47,7 +47,7 @@ use subspace_farmer::utils::{
     recommended_number_of_farming_threads, run_future_in_dedicated_thread,
     thread_pool_core_indices, AsyncJoinOnDrop,
 };
-use subspace_farmer::NodeClient;
+use subspace_farmer::node_client::NodeClient;
 use subspace_farmer_components::reading::ReadSectorRecordChunksMode;
 use subspace_farmer_components::PieceGetter;
 use subspace_kzg::Kzg;

@@ -7,28 +7,43 @@ use futures::channel::oneshot;
 use futures::{select, FutureExt, SinkExt, StreamExt};
 use std::collections::HashSet;
 use std::fs;
+use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
 use std::pin::pin;
 use std::sync::{Arc, RwLock};
-use subspace_core_primitives::crypto::blake3_hash_list;
-use subspace_core_primitives::crypto::kzg::{embedded_kzg_settings, Kzg};
-use subspace_core_primitives::{Piece, PieceIndex, SegmentIndex};
+use subspace_core_primitives::hashes::blake3_hash_list;
+use subspace_kzg::Kzg;
+use subspace_core_primitives::pieces::{Piece, PieceIndex};
+use subspace_core_primitives::segments::SegmentIndex;
 use subspace_farmer::farmer_piece_getter::piece_validator::SegmentCommitmentPieceValidator;
-use subspace_farmer::node_client::NodeClientExt;
+use subspace_farmer::node_client::node_retry_rpc_client::NodeRetryRpcClient;
+use subspace_farmer::node_client::NodeClient;
+use subspace_networking::LocalRecordProvider;
 use subspace_farmer::single_disk_farm::identity::Identity;
 use subspace_farmer::utils::run_future_in_dedicated_thread;
-use subspace_farmer::{NodeClient, NodeRetryRpcClient, KNOWN_PEERS_CACHE_SIZE};
 use subspace_networking::libp2p::identity::{ed25519, Keypair};
 use subspace_networking::libp2p::kad::{ProviderRecord, RecordKey};
 use subspace_networking::libp2p::multiaddr::Protocol;
 use subspace_networking::utils::piece_provider::PieceProvider;
 use subspace_networking::utils::strip_peer_id;
-use subspace_networking::{
-    construct, Config, KademliaMode, KnownPeersManager, KnownPeersManagerConfig,
-    LocalRecordProvider, Node, NodeRunner, PieceByIndexRequest, PieceByIndexRequestHandler,
-    PieceByIndexResponse, SegmentHeaderBySegmentIndexesRequestHandler, SegmentHeaderRequest,
-    SegmentHeaderResponse,
+use subspace_networking::utils::multihash::ToMultihash;
+use subspace_farmer::node_client::NodeClientExt;
+use subspace_networking::protocols::request_response::handlers::cached_piece_by_index::{
+    CachedPieceByIndexRequest, CachedPieceByIndexRequestHandler, CachedPieceByIndexResponse,
+    PieceResult,
 };
+use subspace_networking::protocols::request_response::handlers::piece_by_index::{
+    PieceByIndexRequest, PieceByIndexRequestHandler, PieceByIndexResponse,
+};
+use subspace_networking::protocols::request_response::handlers::segment_header::{
+    SegmentHeaderBySegmentIndexesRequestHandler, SegmentHeaderRequest, SegmentHeaderResponse,
+};
+
+use subspace_networking::{
+    construct, Config, KademliaMode, KnownPeersManager, KnownPeersManagerConfig, Node, NodeRunner,
+    WeakNode,
+};
+use subspace_farmer::KNOWN_PEERS_CACHE_SIZE;
 use subspace_rpc_primitives::MAX_SEGMENT_HEADERS_PER_REQUEST;
 use tokio::sync::Semaphore;
 use tokio::time::{sleep, Duration, Instant};
@@ -36,6 +51,7 @@ use tracing::{debug, error, info, warn, Instrument};
 use zeroize::Zeroizing;
 
 use crate::commands::shared::network::NetworkArgs;
+const SEGMENT_HEADERS_LIMIT: u32 = MAX_SEGMENT_HEADERS_PER_REQUEST as u32;
 
 /// Arguments for farmer
 #[derive(Debug, Parser)]
@@ -144,12 +160,12 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
         let piece_storage = piece_storage.clone();
         //download piece
         tokio::spawn(async move {
-            let kzg = Kzg::new(embedded_kzg_settings());
-            let validator = Some(SegmentCommitmentPieceValidator::new(
+            let kzg = Kzg::new();
+            let validator = SegmentCommitmentPieceValidator::new(
                 node.clone(),
                 node_client.clone(),
                 kzg.clone(),
-            ));
+            );
 
             let piece_storage = Arc::new(RwLock::new(piece_storage));
             let semaphore = Arc::new(Semaphore::new(download_count as usize));
@@ -454,7 +470,7 @@ impl MyPieceCache {
                                     let expected_checksum = fs::read(checksum_path.clone()).expect("Piece checkksum exit");
                                     let content = fs::read(piece_path.clone()).expect("Piece file exit");
                                     let actual_checksum = blake3_hash_list(&[piece_index_bytes.as_slice(), content.as_ref()]);
-                                    if actual_checksum != *expected_checksum {
+                                    if *actual_checksum != *expected_checksum {
                                         warn!(
                                             actual_checksum = %hex::encode(actual_checksum),
                                             expected_checksum = %hex::encode(expected_checksum),
@@ -491,6 +507,21 @@ impl MyPieceCache {
         pieces.contains(index)
     }
 
+    fn has_pieces(&self, indexs: Vec<PieceIndex>) -> Vec<PieceIndex> {
+        let pieces = self
+            .pieces
+            .read()
+            .map_err(|e| anyhow!(e.to_string()))
+            .unwrap();
+        let mut find_pieces = vec![];
+        for index in indexs {
+            if pieces.contains(&index) {
+                find_pieces.push(index.clone());
+            }
+        }
+        find_pieces
+    }
+
     fn piece_count(&self) -> Result<usize> {
         let pieces = self.pieces.write().map_err(|e| anyhow!(e.to_string()))?;
         Ok(pieces.len())
@@ -501,14 +532,17 @@ impl MyPieceCache {
         Ok(*pieces.iter().max().unwrap_or(&PieceIndex::ZERO))
     }
 
-    fn get_piece(&self, piece_index: &PieceIndex) -> Result<Piece> {
+    fn get_piece(&self, piece_index: &PieceIndex) -> Result<Option<Piece>> {
         let _pieces = self.pieces.write().map_err(|e| anyhow!(e.to_string()))?;
         let (_, piece_path, _) = self.piece_path(&piece_index);
         if !piece_path.as_path().is_file() {
             return Err(anyhow!("piece not file or not exit"));
         }
+        if !fs::exists(piece_path.clone())? {
+            return Ok(None)
+        }
         let content = fs::read(piece_path.clone()).expect("Piece file exit");
-        Ok(Piece::try_from(content).map_err(|err| anyhow!("{:?}", err))?)
+        Ok(Some(Piece::try_from(content).map_err(|err| anyhow!("{:?}", err))?))
     }
 
     #[allow(dead_code)]
@@ -523,7 +557,7 @@ impl MyPieceCache {
         let expected_checksum = fs::read(checksum.clone()).expect("Piece checkksum exit");
         let content = fs::read(piece_path.clone()).expect("Piece file exit");
         let actual_checksum = blake3_hash_list(&[piece_index_bytes.as_slice(), content.as_ref()]);
-        if actual_checksum != *expected_checksum {
+        if *actual_checksum != *expected_checksum {
             warn!(
                 actual_checksum = %hex::encode(actual_checksum),
                 expected_checksum = %hex::encode(expected_checksum),
@@ -572,11 +606,6 @@ impl LocalRecordProvider for MyPieceCache {
     }
 }
 
-/// How many segment headers can be requested at a time.
-///
-/// Must be the same as RPC limit since all requests go to the node anyway.
-const SEGMENT_HEADER_NUMBER_LIMIT: u64 = MAX_SEGMENT_HEADERS_PER_REQUEST as u64;
-
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn configure_network(
     protocol_prefix: String,
@@ -584,7 +613,7 @@ fn configure_network(
     keypair: Keypair,
     NetworkArgs {
         listen_on,
-        mut bootstrap_nodes,
+        bootstrap_nodes,
         allow_private_ips,
         reserved_peers,
         in_connections,
@@ -594,7 +623,7 @@ fn configure_network(
         external_addresses,
     }: NetworkArgs,
     node_client: NodeRetryRpcClient,
-    piece_storage: MyPieceCache,
+    farmer_cache: MyPieceCache,
 ) -> Result<(Node, NodeRunner<MyPieceCache>), anyhow::Error> {
     let known_peers_registry = KnownPeersManager::new(KnownPeersManagerConfig {
         path: Some(base_path.join("known_addresses.bin").into_boxed_path()),
@@ -607,42 +636,129 @@ fn configure_network(
     })
     .map(Box::new)?;
 
-    let default_config = Config::new(protocol_prefix, keypair, piece_storage.clone(), None);
-
-    let handler =
-        PieceByIndexRequestHandler::create(move |_, &PieceByIndexRequest { piece_index }| {
-            info!(?piece_index, "Piece request received. Trying cache...");
-            let piece_storage = piece_storage.clone();
-            async move {
-                let piece_from_cache = piece_storage.get_piece(&piece_index);
-                if let Err(e) = piece_from_cache {
-                    warn!(%e, %piece_index,"get piece fail");
-                    return None;
-                }
-                Some(PieceByIndexResponse {
-                    piece: Some(piece_from_cache.unwrap()),
-                })
-            }
-            .in_current_span()
-        });
-    handler.protocol_config().request_timeout = std::time::Duration::from_secs(120);
-    bootstrap_nodes.extend(reserved_peers.clone());
+    let maybe_weak_node = Arc::new(Mutex::new(None::<WeakNode>));
+    let default_config = Config::new(
+        protocol_prefix,
+        keypair,
+        farmer_cache.clone(),
+        None,
+    );
     let config = Config {
         reserved_peers,
         listen_on,
         allow_non_global_addresses_in_dht: allow_private_ips,
         known_peers_registry,
         request_response_protocols: vec![
-            handler,
-            SegmentHeaderBySegmentIndexesRequestHandler::create(move |peer_id, req| {
-                info!(?peer_id, ?req, "Segment headers request received.");
+            {
+                let maybe_weak_node = Arc::clone(&maybe_weak_node);
+                let farmer_cache = farmer_cache.clone();
+
+                CachedPieceByIndexRequestHandler::create(move |peer_id, request| {
+                    //todo disable
+                    let CachedPieceByIndexRequest {
+                        piece_index,
+                        cached_pieces,
+                    } = request;
+                    debug!(?piece_index, "Cached piece request received");
+
+                    let maybe_weak_node = Arc::clone(&maybe_weak_node);
+                    let farmer_cache = farmer_cache.clone();
+                    let mut cached_pieces = Arc::unwrap_or_clone(cached_pieces);
+
+                    async move {
+                        let piece_from_cache =
+                            farmer_cache.get_piece(&piece_index);
+                        cached_pieces.truncate(CachedPieceByIndexRequest::RECOMMENDED_LIMIT);
+                        let cached_pieces = farmer_cache.has_pieces(cached_pieces);
+
+                        Some(CachedPieceByIndexResponse {
+                            result: match piece_from_cache {
+                                Ok(Some(piece)) => PieceResult::Piece(piece),
+                                Ok(None) => {
+                                    let maybe_node = maybe_weak_node
+                                        .lock()
+                                        .as_ref()
+                                        .expect("Always called after network instantiation; qed")
+                                        .upgrade();
+
+                                    let closest_peers = if let Some(node) = maybe_node {
+                                        node.get_closest_local_peers(
+                                            piece_index.to_multihash(),
+                                            Some(peer_id),
+                                        )
+                                        .await
+                                        .inspect_err(|error| {
+                                            warn!(%error, "Failed to get closest local peers");
+                                        })
+                                        .unwrap_or_default()
+                                    } else {
+                                        Vec::new()
+                                    };
+
+                                    PieceResult::ClosestPeers(closest_peers.into())
+                                },
+                                Err(_)=>{
+                                    PieceResult::ClosestPeers(Vec::new().into())
+                                }
+                            },
+                            cached_pieces,
+                        })
+                    }
+                    .in_current_span()
+                })
+            },
+            PieceByIndexRequestHandler::create(move |_, request| {
+                 //todo disable
+                let PieceByIndexRequest {
+                    piece_index,
+                    cached_pieces,
+                } = request;
+                debug!(?piece_index, "Piece request received. Trying cache...");
+
+                let farmer_cache = farmer_cache.clone();
+                let mut cached_pieces = Arc::unwrap_or_clone(cached_pieces);
+
+                async move {
+                    let piece_from_cache = farmer_cache.get_piece(&piece_index);
+                    cached_pieces.truncate(PieceByIndexRequest::RECOMMENDED_LIMIT);
+                    let cached_pieces = farmer_cache.has_pieces(cached_pieces);
+
+                    if let Ok(Some(piece) ) = piece_from_cache {
+                        Some(PieceByIndexResponse {
+                            piece: Some(piece),
+                            cached_pieces,
+                        })
+                    } else {
+                        debug!(
+                            ?piece_index,
+                            "No piece in the cache. Trying archival storage..."
+                        );
+
+                        return None;
+                    }
+                }
+                .in_current_span()
+            }),
+            SegmentHeaderBySegmentIndexesRequestHandler::create(move |_, req| {
+                 //todo disable
+                info!(?req, "Segment headers request received.");
 
                 let node_client = node_client.clone();
-                let req = req.clone();
 
                 async move {
                     let internal_result = match req {
                         SegmentHeaderRequest::SegmentIndexes { segment_indexes } => {
+                            let segment_indexes = Arc::unwrap_or_clone(segment_indexes);
+
+                            if segment_indexes.len() > SEGMENT_HEADERS_LIMIT as usize {
+                                debug!(
+                                    "segment_indexes length exceed the limit: {} ",
+                                    segment_indexes.len()
+                                );
+
+                                return None;
+                            }
+
                             debug!(
                                 segment_indexes_count = ?segment_indexes.len(),
                                 "Segment headers request received."
@@ -650,31 +766,26 @@ fn configure_network(
 
                             node_client.segment_headers(segment_indexes).await
                         }
-                        SegmentHeaderRequest::LastSegmentHeaders {
-                            mut segment_header_number,
-                        } => {
-                            if segment_header_number > SEGMENT_HEADER_NUMBER_LIMIT {
+                        SegmentHeaderRequest::LastSegmentHeaders { mut limit } => {
+                            if limit > SEGMENT_HEADERS_LIMIT {
                                 debug!(
-                                    %segment_header_number,
+                                    %limit,
                                     "Segment header number exceeded the limit."
                                 );
 
-                                segment_header_number = SEGMENT_HEADER_NUMBER_LIMIT;
+                                limit = SEGMENT_HEADERS_LIMIT;
                             }
-                            node_client
-                                .last_segment_headers(segment_header_number)
-                                .await
+                            node_client.last_segment_headers(limit).await
                         }
                     };
 
                     match internal_result {
                         Ok(segment_headers) => segment_headers
                             .into_iter()
-                            .map(|maybe_segment_header| {
+                            .inspect(|maybe_segment_header| {
                                 if maybe_segment_header.is_none() {
                                     error!("Received empty optional segment header!");
                                 }
-                                maybe_segment_header
                             })
                             .collect::<Option<Vec<_>>>()
                             .map(|segment_headers| SegmentHeaderResponse { segment_headers }),
@@ -698,22 +809,21 @@ fn configure_network(
         ..default_config
     };
 
-    construct(config)
-        .map(|(node, node_runner)| {
-            node.on_new_listener(Arc::new({
-                let node = node.clone();
+    let (node, node_runner) = construct(config)?;
+    maybe_weak_node.lock().replace(node.downgrade());
 
-                move |address| {
-                    info!(
-                        "DSN listening on {}",
-                        address.clone().with(Protocol::P2p(node.id()))
-                    );
-                }
-            }))
-            .detach();
+    node.on_new_listener(Arc::new({
+        let node = node.clone();
 
-            // Consider returning HandlerId instead of each `detach()` calls for other usages.
-            (node, node_runner)
-        })
-        .map_err(Into::into)
+        move |address| {
+            info!(
+                "DSN listening on {}",
+                address.clone().with(Protocol::P2p(node.id()))
+            );
+        }
+    }))
+    .detach();
+
+    // Consider returning HandlerId instead of each `detach()` calls for other usages.
+    Ok((node, node_runner))
 }

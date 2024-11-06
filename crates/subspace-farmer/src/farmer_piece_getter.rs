@@ -23,6 +23,8 @@ use subspace_farmer_components::PieceGetter;
 use subspace_networking::utils::multihash::ToMultihash;
 use subspace_networking::utils::piece_provider::{PieceProvider, PieceValidator};
 use tracing::{debug, error, info, trace, warn};
+use std::env;
+use anyhow::anyhow;
 
 pub mod piece_validator;
 
