@@ -525,6 +525,7 @@ where
     where
         PieceIndices: IntoIterator<Item = PieceIndex, IntoIter: Send> + Send + 'a,
     {
+        info!("get_pieces in cache");
         let Some(piece_getter) = self.upgrade() else {
             debug!("Farmer piece getter upgrade didn't succeed");
             return Ok(Box::new(stream::iter(

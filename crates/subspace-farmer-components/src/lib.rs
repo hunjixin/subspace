@@ -36,7 +36,7 @@ use std::io;
 use std::sync::Arc;
 use subspace_core_primitives::pieces::{Piece, PieceIndex};
 use subspace_core_primitives::segments::{ArchivedHistorySegment, HistorySize};
-
+use tracing::{debug, error, trace, warn};
 /// Trait representing a way to get pieces
 #[async_trait]
 pub trait PieceGetter {
@@ -95,6 +95,7 @@ impl PieceGetter for ArchivedHistorySegment {
     where
         PieceIndices: IntoIterator<Item = PieceIndex, IntoIter: Send> + Send + 'a,
     {
+        info!("ArchivedHistorySegment get_pieces");
         Ok(Box::new(
             piece_indices
                 .into_iter()
