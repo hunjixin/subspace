@@ -331,6 +331,7 @@ where
             }
 
             if pieces_not_found_in_farmer_cache.is_empty() {
+                info!("pieces_not_found_in_farmer_cache")
                 return;
             }
 
