@@ -565,11 +565,11 @@ where
                                 piece
                             }
                             Ok(None) => {
-                                debug!(%piece_index, "Couldn't find piece");
+                                info!(%piece_index, "Couldn't find piece");
                                 continue;
                             }
                             Err(error) => {
-                                debug!(
+                                info!(
                                     %error,
                                     %piece_index,
                                     "Failed to get piece for piece cache"

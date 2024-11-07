@@ -107,9 +107,9 @@ where
     }
 
     async fn get_piece_fast_internal(&self, piece_index: PieceIndex) -> Option<Piece> {
-        let inner = &self.inner;
+        let inner: &Arc<Inner<FarmIndex, CacheIndex, PV, NC>> = &self.inner;
 
-        trace!(%piece_index, "Getting piece from farmer cache");
+        info!(%piece_index, "Getting piece from farmer cache");
         if let Some(piece) = inner
             .farmer_cache
             .get_piece(piece_index.to_multihash())
