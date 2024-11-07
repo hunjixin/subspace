@@ -36,7 +36,7 @@ use std::io;
 use std::sync::Arc;
 use subspace_core_primitives::pieces::{Piece, PieceIndex};
 use subspace_core_primitives::segments::{ArchivedHistorySegment, HistorySize};
-use tracing::{debug, error, trace, warn};
+use tracing::info;
 /// Trait representing a way to get pieces
 #[async_trait]
 pub trait PieceGetter {
