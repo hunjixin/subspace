@@ -310,7 +310,7 @@ where
     where
         PieceIndices: IntoIterator<Item = PieceIndex, IntoIter: Send> + Send + 'a,
     {
-        info!(%piece_index, "get_pieces invoke");
+        info!("get_pieces invoke");
         let (tx, mut rx) = mpsc::unbounded();
 
         let fut = async move {
