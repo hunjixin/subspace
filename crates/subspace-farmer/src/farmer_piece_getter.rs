@@ -254,6 +254,7 @@ where
 {
     async fn get_piece(&self, piece_index: PieceIndex) -> anyhow::Result<Option<Piece>> {
         {
+            info!(%piece_index, "get_piece invoke");
             let retries = AtomicU32::new(0);
             let max_retries = u32::from(self.inner.dsn_cache_retry_policy.max_retries);
             let mut backoff = self.inner.dsn_cache_retry_policy.backoff.clone();
@@ -261,7 +262,7 @@ where
 
             let maybe_piece_fut = retry(backoff, || async {
                 let current_attempt = retries.fetch_add(1, Ordering::Relaxed);
-
+        
                 if let Some(piece) = self.get_piece_fast_internal(piece_index).await {
                     trace!(%piece_index, current_attempt, "Got piece fast");
                     return Ok(Some(piece));
@@ -278,7 +279,7 @@ where
                     return Ok(None);
                 }
 
-                trace!(%piece_index, current_attempt, "Couldn't get a piece fast, retrying...");
+                info!(%piece_index, current_attempt, "Couldn't get a piece fast, retrying...");
 
                 Err(backoff::Error::transient("Couldn't get piece fast"))
             });
@@ -508,7 +509,7 @@ where
 {
     async fn get_piece(&self, piece_index: PieceIndex) -> anyhow::Result<Option<Piece>> {
         let Some(piece_getter) = self.upgrade() else {
-            debug!("Farmer piece getter upgrade didn't succeed");
+            info!("Farmer piece getter upgrade didn't succeed");
             return Ok(None);
         };
 
