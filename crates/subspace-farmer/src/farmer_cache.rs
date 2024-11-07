@@ -521,7 +521,7 @@ where
         // Store whatever correct pieces are immediately available after restart
         self.piece_caches.write().await.clone_from(&caches);
 
-        debug!(
+        info!(
             count = %piece_indices_to_store.len(),
             "Identified piece indices that should be cached",
         );
@@ -561,7 +561,7 @@ where
                     while let Some((piece_index, result)) = pieces_stream.next().await {
                         let piece = match result {
                             Ok(Some(piece)) => {
-                                trace!(%piece_index, "Downloaded piece successfully");
+                                info!(%piece_index, "Downloaded piece successfully");
                                 piece
                             }
                             Ok(None) => {
