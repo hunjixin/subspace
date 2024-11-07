@@ -331,9 +331,46 @@ where
             }
 
             if pieces_not_found_in_farmer_cache.is_empty() {
-                info!("pieces_not_found_in_farmer_cache");
                 return;
             }
+
+
+            let mut pieces_not_found_in_nfs_cache = Vec::new();
+            let piece_cache_path = env::var("PIECE_CACHE_NFS_PATH");
+            if let Ok(piece_cache_path) = piece_cache_path {
+                info!("read from nfs cache");
+                for piece_index in pieces_not_found_in_farmer_cache {
+                    let base_dir = std::path::PathBuf::from(&piece_cache_path);
+                    let segment_key = piece_index.segment_index();
+                    let piece_key = piece_index.to_string();
+                    let segment_dir = base_dir.join(segment_key.to_string());
+                    let piece_path = segment_dir.join(piece_key.clone());
+                    info!(%piece_index, "Try to read piece from piece cache dir {:?}", piece_path);
+                    let piece = std::fs::read(piece_path)
+                        .map_err(|e| anyhow!("read piece fail {:?}", e))
+                        .and_then(|piece_data| {
+                            piece_data
+                                .try_into()
+                                .map_err(|e| anyhow!("data is not piece {:?}", e))
+                        });
+                    match piece {
+                        Ok(piece) => {
+                            tx.unbounded_send((piece_index, Ok(Some(piece))))
+                            .expect("This future isn't polled after receiver is dropped; qed");
+                        }
+                        Err(error) => {
+                            warn!(
+                                %error,
+                                %piece_index,
+                                "Failed to read piece from piece cache"
+                            );
+                            pieces_not_found_in_nfs_cache.push(piece_index);
+                        }
+                    }
+                }
+            }
+        
+            pieces_not_found_in_farmer_cache = pieces_not_found_in_nfs_cache;
 
             info!(
                 remaining_piece_count = %pieces_not_found_in_farmer_cache.len(),
