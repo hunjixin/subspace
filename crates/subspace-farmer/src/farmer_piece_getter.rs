@@ -310,12 +310,13 @@ where
     where
         PieceIndices: IntoIterator<Item = PieceIndex, IntoIter: Send> + Send + 'a,
     {
+        info!(%piece_index, "get_pieces invoke");
         let (tx, mut rx) = mpsc::unbounded();
 
         let fut = async move {
             let tx = &tx;
 
-            debug!("Getting pieces from farmer cache");
+            info!("Getting pieces from farmer cache");
             let mut pieces_not_found_in_farmer_cache = Vec::new();
             let mut pieces_in_farmer_cache =
                 self.inner.farmer_cache.get_pieces(piece_indices).await;
@@ -333,7 +334,7 @@ where
                 return;
             }
 
-            debug!(
+            info!(
                 remaining_piece_count = %pieces_not_found_in_farmer_cache.len(),
                 "Getting pieces from DSN cache"
             );
@@ -362,7 +363,7 @@ where
                 return;
             }
 
-            debug!(
+            info!(
                 remaining_piece_count = %pieces_not_found_in_dsn_cache.len(),
                 "Getting pieces from node"
             );
@@ -401,7 +402,7 @@ where
                 return;
             }
 
-            debug!(
+            info!(
                 remaining_piece_count = %pieces_not_found_on_node.len(),
                 "Some pieces were not easily reachable"
             );
