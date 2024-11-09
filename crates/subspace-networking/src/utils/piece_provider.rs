@@ -173,7 +173,7 @@ where
                             );
                         }
                         Err(error) => {
-                            self.node.ban_peer(provider_id).await;
+                            //self.node.ban_peer(provider_id).await;
                             debug!(
                                 %piece_index,
                                 key = hex::encode(&key),

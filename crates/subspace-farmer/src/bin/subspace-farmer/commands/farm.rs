@@ -28,6 +28,7 @@ use subspace_farmer::farmer_piece_getter::piece_validator::SegmentCommitmentPiec
 use subspace_farmer::farmer_piece_getter::{DsnCacheRetryPolicy, FarmerPieceGetter};
 use subspace_farmer::node_client::caching_proxy_node_client::CachingProxyNodeClient;
 use subspace_farmer::node_client::rpc_node_client::RpcNodeClient;
+use subspace_farmer::node_client::NodeClient;
 use subspace_farmer::plotter::cpu::CpuPlotter;
 #[cfg(feature = "cuda")]
 use subspace_farmer::plotter::gpu::cuda::CudaRecordsEncoder;
@@ -47,7 +48,6 @@ use subspace_farmer::utils::{
     recommended_number_of_farming_threads, run_future_in_dedicated_thread,
     thread_pool_core_indices, AsyncJoinOnDrop,
 };
-use subspace_farmer::node_client::NodeClient;
 use subspace_farmer_components::reading::ReadSectorRecordChunksMode;
 use subspace_farmer_components::PieceGetter;
 use subspace_kzg::Kzg;

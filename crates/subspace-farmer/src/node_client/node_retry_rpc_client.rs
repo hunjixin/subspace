@@ -19,7 +19,7 @@ pub struct NodeRetryRpcClient {
 }
 impl NodeRetryRpcClient {
     /// Create a new instance of [`NodeClient`].
-    pub async fn new(url: &str) ->anyhow::Result<Self> {
+    pub async fn new(url: &str) -> anyhow::Result<Self> {
         let client = Arc::new(
             Client::builder()
                 .retry_policy(ExponentialBackoff::from_millis(100))
@@ -202,10 +202,7 @@ impl NodeClient for NodeRetryRpcClient {
 
 #[async_trait]
 impl NodeClientExt for NodeRetryRpcClient {
-    async fn last_segment_headers(
-        &self,
-        limit: u32,
-    ) -> anyhow::Result<Vec<Option<SegmentHeader>>> {
+    async fn last_segment_headers(&self, limit: u32) -> anyhow::Result<Vec<Option<SegmentHeader>>> {
         let raw = self
             .client
             .request(

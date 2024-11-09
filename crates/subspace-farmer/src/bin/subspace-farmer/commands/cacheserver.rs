@@ -5,29 +5,24 @@ use clap::{Parser, ValueHint};
 use futures::channel::mpsc::channel;
 use futures::channel::oneshot;
 use futures::{select, FutureExt, SinkExt, StreamExt};
+use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::fs;
-use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
 use std::pin::pin;
 use std::sync::{Arc, RwLock};
 use subspace_core_primitives::hashes::blake3_hash_list;
-use subspace_kzg::Kzg;
 use subspace_core_primitives::pieces::{Piece, PieceIndex};
 use subspace_core_primitives::segments::SegmentIndex;
 use subspace_farmer::farmer_piece_getter::piece_validator::SegmentCommitmentPieceValidator;
 use subspace_farmer::node_client::node_retry_rpc_client::NodeRetryRpcClient;
-use subspace_farmer::node_client::NodeClient;
-use subspace_networking::LocalRecordProvider;
+use subspace_farmer::node_client::{NodeClient, NodeClientExt};
 use subspace_farmer::single_disk_farm::identity::Identity;
 use subspace_farmer::utils::run_future_in_dedicated_thread;
+use subspace_kzg::Kzg;
 use subspace_networking::libp2p::identity::{ed25519, Keypair};
 use subspace_networking::libp2p::kad::{ProviderRecord, RecordKey};
 use subspace_networking::libp2p::multiaddr::Protocol;
-use subspace_networking::utils::piece_provider::PieceProvider;
-use subspace_networking::utils::strip_peer_id;
-use subspace_networking::utils::multihash::ToMultihash;
-use subspace_farmer::node_client::NodeClientExt;
 use subspace_networking::protocols::request_response::handlers::cached_piece_by_index::{
     CachedPieceByIndexRequest, CachedPieceByIndexRequestHandler, CachedPieceByIndexResponse,
     PieceResult,
@@ -38,12 +33,16 @@ use subspace_networking::protocols::request_response::handlers::piece_by_index::
 use subspace_networking::protocols::request_response::handlers::segment_header::{
     SegmentHeaderBySegmentIndexesRequestHandler, SegmentHeaderRequest, SegmentHeaderResponse,
 };
+use subspace_networking::utils::multihash::ToMultihash;
+use subspace_networking::utils::piece_provider::PieceProvider;
+use subspace_networking::utils::strip_peer_id;
+use subspace_networking::LocalRecordProvider;
 
+use subspace_farmer::KNOWN_PEERS_CACHE_SIZE;
 use subspace_networking::{
     construct, Config, KademliaMode, KnownPeersManager, KnownPeersManagerConfig, Node, NodeRunner,
     WeakNode,
 };
-use subspace_farmer::KNOWN_PEERS_CACHE_SIZE;
 use subspace_rpc_primitives::MAX_SEGMENT_HEADERS_PER_REQUEST;
 use tokio::sync::Semaphore;
 use tokio::time::{sleep, Duration, Instant};
@@ -64,6 +63,9 @@ pub struct CacheServerArgs {
     #[arg(long, default_value_t = 10)]
     download_count: u32,
 
+    #[arg(long)]
+    http_server: Option<String>,
+
     #[arg(long, default_value_t = false)]
     pub verify_piece: bool,
 
@@ -83,6 +85,7 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
     let CacheServerArgs {
         node_rpc_url,
         download_count,
+        http_server,
         disable_detect_future_piece,
         verify_piece,
         mut dsn,
@@ -154,11 +157,13 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
         "farmer-networking".to_string(),
     )?;
 
-    let (sender, mut reciever) = channel::<(PieceIndex, bool, Option<oneshot::Sender<Option<()>>>)>(50);
+    let (sender, mut reciever) =
+        channel::<(PieceIndex, bool, Option<oneshot::Sender<Option<()>>>)>(50);
     {
         let node = node.clone();
         let node_client = node_client.clone();
         let piece_storage = piece_storage.clone();
+        let http_server = http_server.clone();
         //download piece
         tokio::spawn(async move {
             let kzg = Kzg::new();
@@ -170,6 +175,7 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
 
             let piece_storage = Arc::new(RwLock::new(piece_storage));
             let semaphore = Arc::new(Semaphore::new(download_count as usize));
+            let http_server = http_server.clone();
             info!("Start piece download consumer");
             loop {
                 if let Some((piece_index, only_l1, result_sender)) = reciever.next().await {
@@ -180,11 +186,66 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                     let node = node.clone();
                     let validator = validator.clone();
                     let piece_storage = piece_storage.clone();
+                    let http_server = http_server.clone();
                     let permit = semaphore.clone().acquire_owned().await.unwrap();
                     let _ = tokio::spawn(async move {
-                        let piece_provider = PieceProvider::new(node, validator);
+                        {
+                            if let Some(http_server) = http_server.as_ref() {
+                                info!(%piece_index, "Start to download piece from http server {}", http_server);
+                                //download from httpserver
+                                let segment_key = piece_index.segment_index();
+                                let piece_key = piece_index.to_string();
 
+                                let segment_dir = PathBuf::from(segment_key.to_string());
+                                let piece_path = segment_dir.join(piece_key.clone());
+
+                                let start = Instant::now();
+                                let client = reqwest::Client::new();
+                                let getter = client
+                                    .get(&(http_server.clone() + piece_path.to_str().unwrap()))
+                                    .header("X-Auth-Token", "5b34522870adf849033e33a637395c34")
+                                    .send();
+                                match getter.await {
+                              
+                                    Ok(resp) => {
+                                        match resp.bytes().await {
+                                            Ok(body) => match Piece::try_from(body.to_vec()) {
+                                                Ok(piece) => {
+                                                    piece_storage
+                                                        .write()
+                                                        .unwrap()
+                                                        .save_piece(piece_index.clone(), piece)
+                                                        .expect("Write piece file to storage");
+                                                    let duration = start.elapsed();
+                                                    drop(permit);
+                                                    info!(%piece_index, "Downloaded piece from L1 {:?}", duration);
+                                                    if let Some(result_sender) = result_sender {
+                                                        if let Err(Some(e)) =
+                                                            result_sender.send(Some(()))
+                                                        {
+                                                            error!(
+                                                                "Send download response fail {:?}",
+                                                                e
+                                                            );
+                                                        };
+                                                    }
+                                                    return;
+                                                }
+                                                Err(_) => {
+                                                    warn!("http server give a wrong piece")
+                                                }
+                                            },
+                                            Err(err) => {
+                                                warn!("request piece body fail from http server {err}")
+                                            }
+                                        }
+                                    },
+                                    Err(err) => warn!("request piece fail from http server {err}"),
+                                }
+                            }
+                        }
                         info!(%piece_index, "Start to download piece from L2 cache");
+                        let piece_provider = PieceProvider::new(node, validator);
                         let start = Instant::now();
                         if let Some(piece) = piece_provider.get_piece_from_cache(piece_index).await
                         {
@@ -201,7 +262,7 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                                     error!("Send download response fail {:?}", e);
                                 };
                             }
-                    
+
                             return;
                         }
 
@@ -316,9 +377,7 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                                 last_segment_index.last_piece_index()
                             );
                             for piece_index in missing_pieces {
-                                if let Err(e) =
-                                    sender.send((piece_index, false, None)).await
-                                {
+                                if let Err(e) = sender.send((piece_index, false, None)).await {
                                     warn!(%e, "Send piece index fail");
                                     continue;
                                 }
@@ -337,8 +396,9 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                                 loop {
                                     let (result_sender, result_recevier) =
                                         oneshot::channel::<Option<()>>();
-                                    if let Err(e) =
-                                        sender.send((next_piece_index, true, Some(result_sender))).await
+                                    if let Err(e) = sender
+                                        .send((next_piece_index, true, Some(result_sender)))
+                                        .await
                                     {
                                         warn!(%e, "Send piece index fail");
                                         continue;
@@ -546,10 +606,12 @@ impl MyPieceCache {
             return Err(anyhow!("piece not file or not exit"));
         }
         if !fs::exists(piece_path.clone())? {
-            return Ok(None)
+            return Ok(None);
         }
         let content = fs::read(piece_path.clone()).expect("Piece file exit");
-        Ok(Some(Piece::try_from(content).map_err(|err| anyhow!("{:?}", err))?))
+        Ok(Some(
+            Piece::try_from(content).map_err(|err| anyhow!("{:?}", err))?,
+        ))
     }
 
     #[allow(dead_code)]
@@ -645,12 +707,7 @@ fn configure_network(
     .map(Box::new)?;
 
     let maybe_weak_node = Arc::new(Mutex::new(None::<WeakNode>));
-    let default_config = Config::new(
-        protocol_prefix,
-        keypair,
-        farmer_cache.clone(),
-        None,
-    );
+    let default_config = Config::new(protocol_prefix, keypair, farmer_cache.clone(), None);
     let config = Config {
         reserved_peers,
         listen_on,
@@ -674,8 +731,7 @@ fn configure_network(
                     let mut cached_pieces = Arc::unwrap_or_clone(cached_pieces);
 
                     async move {
-                        let piece_from_cache =
-                            farmer_cache.get_piece(&piece_index);
+                        let piece_from_cache = farmer_cache.get_piece(&piece_index);
                         cached_pieces.truncate(CachedPieceByIndexRequest::RECOMMENDED_LIMIT);
                         let cached_pieces = farmer_cache.has_pieces(cached_pieces);
 
@@ -704,10 +760,8 @@ fn configure_network(
                                     };
 
                                     PieceResult::ClosestPeers(closest_peers.into())
-                                },
-                                Err(_)=>{
-                                    PieceResult::ClosestPeers(Vec::new().into())
                                 }
+                                Err(_) => PieceResult::ClosestPeers(Vec::new().into()),
                             },
                             cached_pieces,
                         })
@@ -716,7 +770,7 @@ fn configure_network(
                 })
             },
             PieceByIndexRequestHandler::create(move |_, request| {
-                 //todo disable
+                //todo disable
                 let PieceByIndexRequest {
                     piece_index,
                     cached_pieces,
@@ -731,7 +785,7 @@ fn configure_network(
                     cached_pieces.truncate(PieceByIndexRequest::RECOMMENDED_LIMIT);
                     let cached_pieces = farmer_cache.has_pieces(cached_pieces);
 
-                    if let Ok(Some(piece) ) = piece_from_cache {
+                    if let Ok(Some(piece)) = piece_from_cache {
                         Some(PieceByIndexResponse {
                             piece: Some(piece),
                             cached_pieces,
@@ -748,7 +802,7 @@ fn configure_network(
                 .in_current_span()
             }),
             SegmentHeaderBySegmentIndexesRequestHandler::create(move |_, req| {
-                 //todo disable
+                //todo disable
                 info!(?req, "Segment headers request received.");
 
                 let node_client = node_client.clone();

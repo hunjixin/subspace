@@ -3,6 +3,7 @@
 use crate::farm::plotted_pieces::PlottedPieces;
 use crate::farmer_cache::FarmerCache;
 use crate::node_client::NodeClient;
+use anyhow::anyhow;
 use async_lock::RwLock as AsyncRwLock;
 use async_trait::async_trait;
 use backoff::backoff::Backoff;
@@ -12,19 +13,17 @@ use futures::channel::mpsc;
 use futures::future::FusedFuture;
 use futures::stream::FuturesUnordered;
 use futures::{stream, FutureExt, Stream, StreamExt};
-use std::fmt;
 use std::hash::Hash;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Weak};
 use std::task::{Context, Poll};
+use std::{env, fmt};
 use subspace_core_primitives::pieces::{Piece, PieceIndex};
 use subspace_farmer_components::PieceGetter;
 use subspace_networking::utils::multihash::ToMultihash;
 use subspace_networking::utils::piece_provider::{PieceProvider, PieceValidator};
 use tracing::{debug, error, info, trace, warn};
-use std::env;
-use anyhow::anyhow;
 
 pub mod piece_validator;
 
@@ -262,7 +261,7 @@ where
 
             let maybe_piece_fut = retry(backoff, || async {
                 let current_attempt = retries.fetch_add(1, Ordering::Relaxed);
-        
+
                 if let Some(piece) = self.get_piece_fast_internal(piece_index).await {
                     trace!(%piece_index, current_attempt, "Got piece fast");
                     return Ok(Some(piece));
@@ -334,7 +333,6 @@ where
                 return;
             }
 
-
             let mut pieces_not_found_in_nfs_cache = Vec::new();
             let piece_cache_path = env::var("PIECE_CACHE_NFS_PATH");
             if let Ok(piece_cache_path) = piece_cache_path {
@@ -356,7 +354,7 @@ where
                     match piece {
                         Ok(piece) => {
                             tx.unbounded_send((piece_index, Ok(Some(piece))))
-                            .expect("This future isn't polled after receiver is dropped; qed");
+                                .expect("This future isn't polled after receiver is dropped; qed");
                         }
                         Err(error) => {
                             warn!(
@@ -369,7 +367,7 @@ where
                     }
                 }
             }
-        
+
             pieces_not_found_in_farmer_cache = pieces_not_found_in_nfs_cache;
 
             info!(
