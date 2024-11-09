@@ -100,6 +100,7 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
     }
 
     let piece_dir = cache_path.directory.join("piece");
+    info!("use piece directory {}", &piece_dir);
     if !piece_dir.exists() {
         if let Err(error) = fs::create_dir(piece_dir.clone()) {
             return Err(anyhow!(
@@ -589,7 +590,8 @@ impl MyPieceCache {
             let piece_index_bytes = piece_index.to_bytes();
             let hash = blake3_hash_list(&[&piece_index_bytes, piece.as_ref()]);
             fs::write(checksum, hash)?;
-            fs::write(piece_path, piece)?;
+            fs::write(&piece_path, piece)?;
+            info!("write piece to {}", piece_path);
         }
         pieces.insert(piece_index);
         Ok(())
