@@ -184,7 +184,7 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                     let _ = tokio::spawn(async move {
                         let piece_provider = PieceProvider::new(node, validator);
 
-                        info!(%piece_index, "Start to download piece from cache");
+                        info!(%piece_index, "Start to download piece from L2 cache");
                         let start = Instant::now();
                         if let Some(piece) = piece_provider.get_piece_from_cache(piece_index).await
                         {
@@ -259,7 +259,8 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
                                 maybe_segment_header = segment_headers_notifications.next().fuse() => {
                                     if let Some(segment_header) = maybe_segment_header {
                                         let segment_index = segment_header.segment_index();
-                                        info!(%segment_index, "Starting to process newly archived segment");
+                                        let latest_piece_index = segment_index.last_piece_index();
+                                        info!(%segment_index, %latest_piece_index "Starting to process newly archived segment");
                                         let piecse_indexs = segment_index.segment_piece_indexes();
                                         for piece_index in piecse_indexs {
                                             if let Err(e) = sender.send((piece_index, false, None)).await {
