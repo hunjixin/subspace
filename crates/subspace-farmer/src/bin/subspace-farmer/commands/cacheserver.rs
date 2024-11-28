@@ -292,7 +292,7 @@ pub async fn cache_server(cache_server_args: CacheServerArgs) -> anyhow::Result<
 
                         error!(%piece_index, "Unable to download piece wait for next round");
                         if let Some(result_sender) = result_sender {
-                            if let Err(Some(e)) = result_sender.send(Some(())) {
+                            if let Err(Some(e)) = result_sender.send(None) {
                                 error!("Send download response fail {:?}", e);
                             };
                         }
